@@ -14,6 +14,38 @@ pub const KECCAK_WORDS: usize = 25;
 pub const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
 pub const HASH_SIZE: usize = 32;
 
+#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone)]
+#[repr(C, align(64))]
+struct ForceAlignment([u64; 32]);
+
+pub struct ScratchPad(Vec<ForceAlignment>);
+
+impl ScratchPad {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.0.as_mut_ptr() as *mut u8
+    }
+
+    // TODO no unwrap
+    pub fn as_mut_slice(&mut self) -> &mut [u64; MEMORY_SIZE] {
+        bytemuck::cast_slice_mut(&mut self.0).try_into().unwrap()
+    }
+}
+
+impl Default for ScratchPad {
+    fn default() -> Self {
+        let mut n = MEMORY_SIZE / 32;
+        if MEMORY_SIZE % 32 != 0 {
+            n += 1;
+        }
+    
+        Self(vec![ForceAlignment([0; 32]); n])
+    }
+}
+
 #[derive(Debug, ThisError)]
 #[error("Error while hashing")]
 pub struct Error;
@@ -22,8 +54,12 @@ pub type Hash = [u8; HASH_SIZE];
 
 // This will auto allocate the scratchpad
 pub fn xelis_hash_no_scratch_pad(input: &mut [u8]) -> Result<Hash, Error> {
-    let mut scratch_pad = [0u64; MEMORY_SIZE];
-    xelis_hash(input, &mut scratch_pad)
+    let mut scratchpad = ScratchPad::default();
+    xelis_hash_scratch_pad(input, &mut scratchpad)
+}
+
+pub fn xelis_hash_scratch_pad(input: &mut [u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
+    xelis_hash(input, scratch_pad.as_mut_slice())
 }
 
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
@@ -31,6 +67,9 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
         return Err(Error);
     }
 
+    if scratch_pad.len() < MEMORY_SIZE {
+        return Err(Error);
+    }
     // stage 1
     let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(&mut input[0..BYTES_ARRAY_INPUT]).map_err(|_| Error)?;
 
@@ -231,5 +270,18 @@ mod tests {
             61, 30, 146, 238, 182, 88, 83, 115, 81, 139, 56, 3, 28, 176, 86, 68, 21
         ];
         test_input(&mut input, expected_hash);
+    }
+
+    #[test]
+    fn test_scratch_pad() {
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; BYTES_ARRAY_INPUT];
+        let hash = xelis_hash_scratch_pad(&mut input, &mut scratch_pad).unwrap();
+        let expected_hash = [
+            0x0e, 0xbb, 0xbd, 0x8a, 0x31, 0xed, 0xad, 0xfe, 0x09, 0x8f, 0x2d, 0x77, 0x0d, 0x84,
+            0xb7, 0x19, 0x58, 0x86, 0x75, 0xab, 0x88, 0xa0, 0xa1, 0x70, 0x67, 0xd0, 0x0a, 0x8f,
+            0x36, 0x18, 0x22, 0x65,
+        ];
+        assert_eq!(hash, expected_hash);
     }
 }
