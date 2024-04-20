@@ -14,35 +14,56 @@ pub const KECCAK_WORDS: usize = 25;
 pub const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
 pub const HASH_SIZE: usize = 32;
 
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone)]
-#[repr(C, align(64))]
-struct ForceAlignment([u64; 32]);
-
-pub struct ScratchPad(Vec<ForceAlignment>);
+pub struct ScratchPad([u64; MEMORY_SIZE]);
 
 impl ScratchPad {
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.0.as_mut_ptr() as *mut u8
-    }
-
-    // TODO no unwrap
     pub fn as_mut_slice(&mut self) -> &mut [u64; MEMORY_SIZE] {
-        bytemuck::cast_slice_mut(&mut self.0).try_into().unwrap()
+        &mut self.0
     }
 }
 
 impl Default for ScratchPad {
     fn default() -> Self {
-        let mut n = MEMORY_SIZE / 32;
-        if MEMORY_SIZE % 32 != 0 {
+        Self([0; MEMORY_SIZE])
+    }
+}
+
+#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone)]
+#[repr(C, align(8))]
+pub struct Bytes8Alignment([u8; 8]);
+
+pub struct Input {
+    data: Vec<Bytes8Alignment>,
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        let mut n = BYTES_ARRAY_INPUT / 8;
+        if BYTES_ARRAY_INPUT % 8 != 0 {
             n += 1;
         }
     
-        Self(vec![ForceAlignment([0; 32]); n])
+        Self {
+            data: vec![Bytes8Alignment([0; 8]); n]
+        }
+    }
+} 
+
+impl Input {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr() as *mut u8
+    }
+
+    pub fn as_mut_slice(&mut self) -> Result<&mut [u8; BYTES_ARRAY_INPUT], Error> {
+        bytemuck::cast_slice_mut(&mut self.data).try_into().map_err(|_| Error)
     }
 }
 
@@ -63,7 +84,7 @@ pub fn xelis_hash_scratch_pad(input: &mut [u8], scratch_pad: &mut ScratchPad) ->
 }
 
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
-    if input.len() != BYTES_ARRAY_INPUT {
+    if input.len() < BYTES_ARRAY_INPUT {
         return Err(Error);
     }
 
@@ -71,7 +92,8 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
         return Err(Error);
     }
     // stage 1
-    let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(&mut input[0..BYTES_ARRAY_INPUT]).map_err(|_| Error)?;
+    let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(&mut input[0..BYTES_ARRAY_INPUT])
+        .map_err(|_| Error)?;
 
     for i in 0..=(MEMORY_SIZE / KECCAK_WORDS) {
         keccakp(int_input);
@@ -168,7 +190,7 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
 
         aes::hazmat::cipher_round(&mut block, &key);
 
-        let hash1 = u64::from_le_bytes(block[0..8].try_into().unwrap());
+        let hash1 = u64::from_le_bytes(block[0..8].try_into().map_err(|_| Error)?);
         let hash2 = mem_a ^ mem_b;
 
         let mut result = !(hash1 ^ hash2);
@@ -218,8 +240,8 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
 
 #[cfg(test)]
 mod tests {
-    use std::{hint, time::Instant};
     use super::*;
+    use std::{time::Instant, hint};
 
     fn test_input(input: &mut [u8], expected_hash: Hash) {
         let mut scratch_pad = [0u64; MEMORY_SIZE];
@@ -275,8 +297,9 @@ mod tests {
     #[test]
     fn test_scratch_pad() {
         let mut scratch_pad = ScratchPad::default();
-        let mut input = [0u8; BYTES_ARRAY_INPUT];
-        let hash = xelis_hash_scratch_pad(&mut input, &mut scratch_pad).unwrap();
+        let mut input = Input::default();
+
+        let hash = xelis_hash_scratch_pad(input.as_mut_slice().unwrap(), &mut scratch_pad).unwrap();
         let expected_hash = [
             0x0e, 0xbb, 0xbd, 0x8a, 0x31, 0xed, 0xad, 0xfe, 0x09, 0x8f, 0x2d, 0x77, 0x0d, 0x84,
             0xb7, 0x19, 0x58, 0x86, 0x75, 0xab, 0x88, 0xa0, 0xa1, 0x70, 0x67, 0xd0, 0x0a, 0x8f,
