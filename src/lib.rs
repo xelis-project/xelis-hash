@@ -2,16 +2,16 @@ use aes::cipher::generic_array::GenericArray;
 use tiny_keccak::keccakp;
 
 // These are tweakable parameters
-const MEMORY_SIZE: usize = 32768;
-const SCRATCHPAD_ITERS: usize = 5000;
-const ITERS: usize = 1;
-const BUFFER_SIZE: usize = 42;
-const SLOT_LENGTH: usize = 256;
+pub const MEMORY_SIZE: usize = 32768;
+pub const SCRATCHPAD_ITERS: usize = 5000;
+pub const ITERS: usize = 1;
+pub const BUFFER_SIZE: usize = 42;
+pub const SLOT_LENGTH: usize = 256;
 
 // Untweakable parameters
-const KECCAK_WORDS: usize = 25;
-const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
-const HASH_SIZE: usize = 32;
+pub const KECCAK_WORDS: usize = 25;
+pub const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
+pub const HASH_SIZE: usize = 32;
 
 #[derive(Debug)]
 pub struct Error;
@@ -25,7 +25,7 @@ pub fn xelis_hash_no_scratch_pad(input: &mut [u8]) -> Result<Hash, Error> {
 }
 
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
-    if input.len() < BYTES_ARRAY_INPUT {
+    if input.len() != BYTES_ARRAY_INPUT {
         return Err(Error);
     }
 
