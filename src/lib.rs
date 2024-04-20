@@ -1,4 +1,5 @@
 use aes::cipher::generic_array::GenericArray;
+use thiserror::Error as ThisError;
 use tiny_keccak::keccakp;
 
 // These are tweakable parameters
@@ -13,7 +14,8 @@ pub const KECCAK_WORDS: usize = 25;
 pub const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
 pub const HASH_SIZE: usize = 32;
 
-#[derive(Debug)]
+#[derive(Debug, ThisError)]
+#[error("Error while hashing")]
 pub struct Error;
 
 pub type Hash = [u8; HASH_SIZE];
