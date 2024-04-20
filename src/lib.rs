@@ -32,10 +32,11 @@ impl Default for ScratchPad {
     }
 }
 
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone)]
+#[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Copy, Clone)]
 #[repr(C, align(8))]
 pub struct Bytes8Alignment([u8; 8]);
 
+#[derive(Debug, Clone)]
 pub struct Input {
     data: Vec<Bytes8Alignment>,
 }
@@ -64,6 +65,10 @@ impl Input {
 
     pub fn as_mut_slice(&mut self) -> Result<&mut [u8; BYTES_ARRAY_INPUT], Error> {
         bytemuck::cast_slice_mut(&mut self.data).try_into().map_err(|_| Error)
+    }
+
+    pub fn as_slice(&self) -> Result<&[u8; BYTES_ARRAY_INPUT], Error> {
+        bytemuck::cast_slice(&self.data).try_into().map_err(|_| Error)
     }
 }
 
