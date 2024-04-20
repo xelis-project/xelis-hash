@@ -18,6 +18,12 @@ pub struct Error;
 
 pub type Hash = [u8; HASH_SIZE];
 
+// This will auto allocate the scratchpad
+pub fn xelis_hash_no_scratch_pad(input: &mut [u8]) -> Result<Hash, Error> {
+    let mut scratch_pad = [0u64; MEMORY_SIZE];
+    xelis_hash(input, &mut scratch_pad)
+}
+
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
     if input.len() < BYTES_ARRAY_INPUT {
         return Err(Error);
