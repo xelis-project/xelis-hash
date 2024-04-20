@@ -19,6 +19,10 @@ pub struct Error;
 pub type Hash = [u8; HASH_SIZE];
 
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
+    if input.len() < BYTES_ARRAY_INPUT {
+        return Err(Error);
+    }
+
     // stage 1
     let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(&mut input[0..BYTES_ARRAY_INPUT]).map_err(|_| Error)?;
 
@@ -48,9 +52,11 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
 
     // stage 2
     let mut slots: [u32; SLOT_LENGTH] = [0; SLOT_LENGTH];
-    let small_pad: &mut [u32] = unsafe {
-        std::slice::from_raw_parts_mut(scratch_pad.as_mut_ptr() as *mut u32, MEMORY_SIZE * 8 / 4)
-    };
+    // this is equal to MEMORY_SIZE, just in u32 format
+    let small_pad: &mut [u32; MEMORY_SIZE * 2] = bytemuck::try_cast_slice_mut(scratch_pad)
+        .map_err(|_| Error)?
+        .try_into()
+        .map_err(|_| Error)?;
 
     slots.copy_from_slice(&small_pad[small_pad.len() - SLOT_LENGTH..]);
 
