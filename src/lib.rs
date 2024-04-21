@@ -110,16 +110,21 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
 
             let target_idx = i * KECCAK_WORDS + j;
             if target_idx < MEMORY_SIZE {
-                scratch_pad[target_idx] = int_input[j] ^ rand_int;
+                let a = int_input[j] ^ rand_int;
                 // Branching
-                match (int_input[pair_idx] ^ int_input[pair_idx2]) & 0x3 {
-                    0 => scratch_pad[target_idx] ^= int_input[pair_idx] & int_input[pair_idx2],
-                    1 => scratch_pad[target_idx] ^= !(int_input[pair_idx] & int_input[pair_idx2]),
-                    2 => scratch_pad[target_idx] ^= !(int_input[pair_idx] ^ int_input[pair_idx2]),
-                    3 => scratch_pad[target_idx] ^= int_input[pair_idx] ^ int_input[pair_idx2],
-                    _ => (),
-                }
-                rand_int = scratch_pad[target_idx];
+                let left = int_input[pair_idx];
+                let right = int_input[pair_idx2];
+                let xor = left ^ right;
+                let v = match xor & 0x3 {
+                    0 => left & right,
+                    1 => !(left & right),
+                    2 => !xor,
+                    3 => xor,
+                    _ => unreachable!(),
+                };
+                let b = a ^ v;
+                rand_int = b;
+                scratch_pad[target_idx] = b;
             }
         }
     }
@@ -167,7 +172,7 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
         }
     }
 
-    small_pad[(MEMORY_SIZE * 8 / 4) - SLOT_LENGTH..].copy_from_slice(&slots);
+    small_pad[(MEMORY_SIZE * 2) - SLOT_LENGTH..].copy_from_slice(&slots);
 
     // stage 3
     let key = GenericArray::from([0u8; 16]);
@@ -205,25 +210,27 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
             let b = mem_buffer_b[(j + i) % BUFFER_SIZE];
 
             // more branching
-            match (result >> (j * 2)) & 0xf {
-                0 => result = result.rotate_left(j as u32) ^ b,
-                1 => result = !(result.rotate_left(j as u32) ^ a),
-                2 => result = !(result ^ a),
-                3 => result = result ^ b,
-                4 => result = result ^ (a.wrapping_add(b)),
-                5 => result = result ^ (a.wrapping_sub(b)),
-                6 => result = result ^ (b.wrapping_sub(a)),
-                7 => result = result ^ (a.wrapping_mul(b)),
-                8 => result = result ^ (a & b),
-                9 => result = result ^ (a | b),
-                10 => result = result ^ (a ^ b),
-                11 => result = result ^ (a.wrapping_sub(result)),
-                12 => result = result ^ (b.wrapping_sub(result)),
-                13 => result = result ^ (a.wrapping_add(result)),
-                14 => result = result ^ (result.wrapping_sub(a)),
-                15 => result = result ^ (result.wrapping_sub(b)),
-                _ => (),
-            }
+            let v = match (result >> (j * 2)) & 0xf {
+                0 => result.rotate_left(j as u32) ^ b,
+                1 => !(result.rotate_left(j as u32) ^ a),
+                2 => !(result ^ a),
+                3 => result ^ b,
+                4 => result ^ (a.wrapping_add(b)),
+                5 => result ^ (a.wrapping_sub(b)),
+                6 => result ^ (b.wrapping_sub(a)),
+                7 => result ^ (a.wrapping_mul(b)),
+                8 => result ^ (a & b),
+                9 => result ^ (a | b),
+                10 => result ^ (a ^ b),
+                11 => result ^ (a.wrapping_sub(result)),
+                12 => result ^ (b.wrapping_sub(result)),
+                13 => result ^ (a.wrapping_add(result)),
+                14 => result ^ (result.wrapping_sub(a)),
+                15 => result ^ (result.wrapping_sub(b)),
+                _ => unreachable!(),
+            };
+
+            result = v;
         }
 
         addr_b = result & 0x7FFF;
