@@ -13,6 +13,7 @@ pub const SLOT_LENGTH: usize = 256;
 pub const KECCAK_WORDS: usize = 25;
 pub const BYTES_ARRAY_INPUT: usize = KECCAK_WORDS * 8;
 pub const HASH_SIZE: usize = 32;
+pub const STAGE_1_MAX: usize = MEMORY_SIZE / KECCAK_WORDS;
 
 pub struct ScratchPad([u64; MEMORY_SIZE]);
 
@@ -88,6 +89,36 @@ pub fn xelis_hash_scratch_pad(input: &mut [u8], scratch_pad: &mut ScratchPad) ->
     xelis_hash(input, scratch_pad.as_mut_slice())
 }
 
+#[inline(always)]
+fn stage_1(int_input: &mut [u64; KECCAK_WORDS], scratch_pad: &mut [u64; MEMORY_SIZE], a: (usize, usize), b: (usize, usize)) {
+    for i in a.0..=a.1 {
+        keccakp(int_input);
+
+        let mut rand_int: u64 = 0;
+        for j in b.0..=b.1 {
+            let pair_idx = (j + 1) % KECCAK_WORDS;
+            let pair_idx2 = (j + 2) % KECCAK_WORDS;
+
+            let target_idx = i * KECCAK_WORDS + j;
+            let a = int_input[j] ^ rand_int;
+            // Branching
+            let left = int_input[pair_idx];
+            let right = int_input[pair_idx2];
+            let xor = left ^ right;
+            let v = match xor & 0x3 {
+                0 => left & right,
+                1 => !(left & right),
+                2 => !xor,
+                3 => xor,
+                _ => unreachable!(),
+            };
+            let b = a ^ v;
+            rand_int = b;
+            scratch_pad[target_idx] = b;
+        }
+    }
+}
+
 pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<Hash, Error> {
     if input.len() < BYTES_ARRAY_INPUT {
         return Err(Error);
@@ -96,38 +127,13 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
     if scratch_pad.len() < MEMORY_SIZE {
         return Err(Error);
     }
-    // stage 1
+
     let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(&mut input[0..BYTES_ARRAY_INPUT])
-        .map_err(|_| Error)?;
+    .map_err(|_| Error)?;
 
-    for i in 0..=(MEMORY_SIZE / KECCAK_WORDS) {
-        keccakp(int_input);
-
-        let mut rand_int: u64 = 0;
-        for j in 0..KECCAK_WORDS {
-            let pair_idx = (j + 1) % KECCAK_WORDS;
-            let pair_idx2 = (j + 2) % KECCAK_WORDS;
-
-            let target_idx = i * KECCAK_WORDS + j;
-            if target_idx < MEMORY_SIZE {
-                let a = int_input[j] ^ rand_int;
-                // Branching
-                let left = int_input[pair_idx];
-                let right = int_input[pair_idx2];
-                let xor = left ^ right;
-                let v = match xor & 0x3 {
-                    0 => left & right,
-                    1 => !(left & right),
-                    2 => !xor,
-                    3 => xor,
-                    _ => unreachable!(),
-                };
-                let b = a ^ v;
-                rand_int = b;
-                scratch_pad[target_idx] = b;
-            }
-        }
-    }
+    // stage 1
+    stage_1(int_input, scratch_pad, (0, STAGE_1_MAX - 1), (0, KECCAK_WORDS - 1));
+    stage_1(int_input, scratch_pad, (STAGE_1_MAX, STAGE_1_MAX), (0, 17));
 
     // stage 2
     let mut slots: [u32; SLOT_LENGTH] = [0; SLOT_LENGTH];
@@ -148,26 +154,29 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
             }
 
             for slot_idx in (0..SLOT_LENGTH).rev() {
-                let index_in_indices =
-                    (small_pad[j * SLOT_LENGTH + slot_idx] % (slot_idx as u32 + 1)) as usize;
+                let index_in_indices = (small_pad[j * SLOT_LENGTH + slot_idx] % (slot_idx as u32 + 1)) as usize;
                 let index = indices[index_in_indices] as usize;
                 indices[index_in_indices] = indices[slot_idx];
 
-                // Split the loop in two to avoid bounds check
+                // Split the loop in two to avoid checking k == index
+                let mut sum = slots[index];
+                let offset = j * SLOT_LENGTH;
                 for k in 0..index {
-                    if slots[k] >> 31 == 0 {
-                        slots[index] = slots[index].wrapping_add(small_pad[j * SLOT_LENGTH + k]);
+                    sum = if slots[k] >> 31 == 0 {
+                        sum.wrapping_add(small_pad[offset + k])
                     } else {
-                        slots[index] = slots[index].wrapping_sub(small_pad[j * SLOT_LENGTH + k]);
-                    }
+                        sum.wrapping_sub(small_pad[offset + k])
+                    };
                 }
                 for k in (index + 1)..SLOT_LENGTH {
-                    if slots[k] >> 31 == 0 {
-                        slots[index] = slots[index].wrapping_add(small_pad[j * SLOT_LENGTH + k]);
+                    sum = if slots[k] >> 31 == 0 {
+                        sum.wrapping_add(small_pad[offset + k])
                     } else {
-                        slots[index] = slots[index].wrapping_sub(small_pad[j * SLOT_LENGTH + k]);
-                    }
+                        sum.wrapping_sub(small_pad[offset + k])
+                    };
                 }
+
+                slots[index] = sum;
             }
         }
     }
@@ -242,8 +251,7 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
 
         let index = SCRATCHPAD_ITERS - i - 1;
         if index < 4 {
-            final_result[index * 8..(SCRATCHPAD_ITERS - i) * 8]
-                .copy_from_slice(&result.to_be_bytes());
+            final_result[index * 8..(SCRATCHPAD_ITERS - i) * 8].copy_from_slice(&result.to_be_bytes());
         }
     }
 
