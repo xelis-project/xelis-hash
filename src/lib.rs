@@ -1,3 +1,7 @@
+#![feature(portable_simd)]
+
+use std::{ptr::read_unaligned, simd::{cmp::SimdPartialEq, num::SimdUint, u32x16, Mask}};
+
 use aes::cipher::generic_array::GenericArray;
 use thiserror::Error as ThisError;
 use tiny_keccak::keccakp;
@@ -146,6 +150,7 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
     slots.copy_from_slice(&small_pad[small_pad.len() - SLOT_LENGTH..]);
 
     let mut indices: [u16; SLOT_LENGTH] = [0; SLOT_LENGTH];
+    let mut mask_buffer = [Mask::<i32, 16>::splat(true); SLOT_LENGTH/16];
     for _ in 0..ITERS {
         for j in 0..small_pad.len() / SLOT_LENGTH {
             // Initialize indices
@@ -158,25 +163,22 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
                 let index = indices[index_in_indices] as usize;
                 indices[index_in_indices] = indices[slot_idx];
 
-                // Split the loop in two to avoid checking k == index
-                let mut sum = slots[index];
-                let offset = j * SLOT_LENGTH;
-                for k in 0..index {
-                    sum = if slots[k] >> 31 == 0 {
-                        sum.wrapping_add(small_pad[offset + k])
-                    } else {
-                        sum.wrapping_sub(small_pad[offset + k])
-                    };
-                }
-                for k in (index + 1)..SLOT_LENGTH {
-                    sum = if slots[k] >> 31 == 0 {
-                        sum.wrapping_add(small_pad[offset + k])
-                    } else {
-                        sum.wrapping_sub(small_pad[offset + k])
-                    };
+                let mut sum_buffer = u32x16::splat(0);
+
+                mask_buffer[index/16].set(index % 16, false);
+
+                for k in (0..SLOT_LENGTH).step_by(16) {
+                    let slot_vector = u32x16::from_array(unsafe { read_unaligned(&slots[k] as *const u32 as *const [u32; 16]) });
+                    let values = u32x16::from_array(unsafe { read_unaligned(&small_pad[j * SLOT_LENGTH + k] as *const u32 as *const [u32; 16]) });
+
+                    let sign_mask = (slot_vector >> 31).simd_eq(u32x16::splat(0));
+                    sum_buffer = mask_buffer[k/16].select(sign_mask.select(sum_buffer + values, sum_buffer - values), sum_buffer);
                 }
 
-                slots[index] = sum;
+                mask_buffer[index/16].set(index % 16, true);
+
+
+                slots[index] += sum_buffer.reduce_sum();
             }
         }
     }
