@@ -1,6 +1,7 @@
-#![feature(portable_simd)]
+#![cfg_attr(feature = "nightly", feature(portable_simd))]
 
-use std::{ptr::read_unaligned, simd::{cmp::SimdPartialEq, num::SimdUint, u32x16, Mask}};
+#[cfg(feature = "nightly")]
+use std::{ptr::read_unaligned, simd::{cmp::SimdPartialEq, num::SimdUint, u32x16}};
 
 use aes::cipher::generic_array::GenericArray;
 use thiserror::Error as ThisError;
@@ -150,7 +151,6 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
     slots.copy_from_slice(&small_pad[small_pad.len() - SLOT_LENGTH..]);
 
     let mut indices: [u16; SLOT_LENGTH] = [0; SLOT_LENGTH];
-    let mut mask_buffer = [Mask::<i32, 16>::splat(true); SLOT_LENGTH/16];
     for _ in 0..ITERS {
         for j in 0..small_pad.len() / SLOT_LENGTH {
             // Initialize indices
@@ -163,22 +163,49 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
                 let index = indices[index_in_indices] as usize;
                 indices[index_in_indices] = indices[slot_idx];
 
-                let mut sum_buffer = u32x16::splat(0);
+                #[cfg(feature = "nightly")]
+                {
+                    let mut sum_buffer = u32x16::splat(0);
 
-                mask_buffer[index/16].set(index % 16, false);
+                    for k in (0..SLOT_LENGTH).step_by(16) {
+                        let slot_vector = u32x16::from_array(unsafe { read_unaligned(&slots[k] as *const u32 as *const [u32; 16]) });
+                        let values = u32x16::from_array(unsafe { read_unaligned(&small_pad[j * SLOT_LENGTH + k] as *const u32 as *const [u32; 16]) });
 
-                for k in (0..SLOT_LENGTH).step_by(16) {
-                    let slot_vector = u32x16::from_array(unsafe { read_unaligned(&slots[k] as *const u32 as *const [u32; 16]) });
-                    let values = u32x16::from_array(unsafe { read_unaligned(&small_pad[j * SLOT_LENGTH + k] as *const u32 as *const [u32; 16]) });
+                        let sign_mask = (slot_vector >> 31).simd_eq(u32x16::splat(0));
+                        sum_buffer = sign_mask.select(sum_buffer + values, sum_buffer - values);
+                    }
 
-                    let sign_mask = (slot_vector >> 31).simd_eq(u32x16::splat(0));
-                    sum_buffer = mask_buffer[k/16].select(sign_mask.select(sum_buffer + values, sum_buffer - values), sum_buffer);
+                    if slots[index] >> 31 == 0 {
+                        sum_buffer[index % 16] -= small_pad[j * SLOT_LENGTH + index];
+                    } else {
+                        sum_buffer[index % 16] += small_pad[j * SLOT_LENGTH + index];
+                    }
+
+
+                    slots[index] += sum_buffer.reduce_sum();
                 }
+                
+                #[cfg(not(feature = "nightly"))]
+                {
+                    let mut sum = slots[index];
+                    let offset = j * SLOT_LENGTH;
+                    for k in 0..index {
+                        sum = if slots[k] >> 31 == 0 {
+                            sum.wrapping_add(small_pad[offset + k])
+                        } else {
+                            sum.wrapping_sub(small_pad[offset + k])
+                        };
+                    }
+                    for k in (index + 1)..SLOT_LENGTH {
+                        sum = if slots[k] >> 31 == 0 {
+                            sum.wrapping_add(small_pad[offset + k])
+                        } else {
+                            sum.wrapping_sub(small_pad[offset + k])
+                        };
+                    }
 
-                mask_buffer[index/16].set(index % 16, true);
-
-
-                slots[index] += sum_buffer.reduce_sum();
+                    slots[index] = sum;
+                }
             }
         }
     }
@@ -273,12 +300,12 @@ mod tests {
 
     #[test]
     fn benchmark_cpu_hash() {
+        const ITERATIONS: u32 = 1000;
         let mut input = [0u8; 200];
         let mut scratch_pad = [0u64; 32768];
 
         let start = Instant::now();
-        let iterations = 1000;
-        for i in 0..iterations {
+        for i in 0..ITERATIONS {
             input[0] = i as u8;
             input[1] = (i >> 8) as u8;
             let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad)).unwrap();
@@ -286,8 +313,8 @@ mod tests {
 
         let elapsed = start.elapsed();
         println!("Time took: {:?}", elapsed);
-        println!("H/s: {:?}", iterations as f64 / (elapsed.as_secs() as f64));
-        println!("ms per hash: {:?}", (elapsed.as_millis() as f64) / iterations as f64);
+        println!("H/s: {:.2}", (ITERATIONS as f64 * 1000.) / (elapsed.as_millis() as f64));
+        println!("ms per hash: {:.3}", (elapsed.as_millis() as f64) / ITERATIONS as f64);
     }
 
     #[test]

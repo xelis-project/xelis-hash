@@ -12,4 +12,9 @@ thiserror = "1.0.58"
 tiny-keccak = { version = "2.0", features = ["k12"] }
 
 [profile.dev]
+opt-level = 3
 overflow-checks = false
+
+[features]
+default = ["nightly"]
+nightly = []
