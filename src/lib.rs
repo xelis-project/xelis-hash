@@ -190,17 +190,19 @@ pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut [u64; MEMORY_SIZE]) -> Res
                     let mut sum = slots[index];
                     let offset = j * SLOT_LENGTH;
                     for k in 0..index {
+                        let pad = small_pad[offset + k];
                         sum = if slots[k] >> 31 == 0 {
-                            sum.wrapping_add(small_pad[offset + k])
+                            sum.wrapping_add(pad)
                         } else {
-                            sum.wrapping_sub(small_pad[offset + k])
+                            sum.wrapping_sub(pad)
                         };
                     }
                     for k in (index + 1)..SLOT_LENGTH {
+                        let pad = small_pad[offset + k];
                         sum = if slots[k] >> 31 == 0 {
-                            sum.wrapping_add(small_pad[offset + k])
+                            sum.wrapping_add(pad)
                         } else {
-                            sum.wrapping_sub(small_pad[offset + k])
+                            sum.wrapping_sub(pad)
                         };
                     }
 
