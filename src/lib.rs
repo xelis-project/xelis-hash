@@ -1,8 +1,3 @@
-#![cfg_attr(feature = "nightly", feature(portable_simd))]
-
-#[cfg(feature = "nightly")]
-use std::{ptr::read_unaligned, simd::{cmp::SimdPartialEq, num::SimdUint, u32x16}};
-
 use aes::cipher::generic_array::GenericArray;
 use thiserror::Error as ThisError;
 use tiny_keccak::keccakp;
@@ -157,9 +152,15 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
     let mut indices: [u16; SLOT_LENGTH] = [0; SLOT_LENGTH];
     for _ in 0..ITERS {
         for j in 0..small_pad.len() / SLOT_LENGTH {
-            // Initialize indices
+            // Initialize indices and precompute the total sum of small pad
+            let mut total_sum = 0;
             for k in 0..SLOT_LENGTH {
                 indices[k] = k as u16;
+                if slots[k] >> 31 == 0 {
+                    total_sum += small_pad[j * SLOT_LENGTH + k];
+                } else {
+                    total_sum -= small_pad[j * SLOT_LENGTH + k];
+                }
             }
 
             for slot_idx in (0..SLOT_LENGTH).rev() {
@@ -167,51 +168,21 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
                 let index = indices[index_in_indices] as usize;
                 indices[index_in_indices] = indices[slot_idx];
 
-                #[cfg(feature = "nightly")]
-                {
-                    let mut sum_buffer = u32x16::splat(0);
-
-                    for k in (0..SLOT_LENGTH).step_by(16) {
-                        let slot_vector = u32x16::from_array(unsafe { read_unaligned(&slots[k] as *const u32 as *const [u32; 16]) });
-                        let values = u32x16::from_array(unsafe { read_unaligned(&small_pad[j * SLOT_LENGTH + k] as *const u32 as *const [u32; 16]) });
-
-                        let sign_mask = (slot_vector >> 31).simd_eq(u32x16::splat(0));
-                        sum_buffer = sign_mask.select(sum_buffer + values, sum_buffer - values);
-                    }
-
-                    if slots[index] >> 31 == 0 {
-                        sum_buffer[index % 16] -= small_pad[j * SLOT_LENGTH + index];
-                    } else {
-                        sum_buffer[index % 16] += small_pad[j * SLOT_LENGTH + index];
-                    }
-
-
-                    slots[index] += sum_buffer.reduce_sum();
+                let mut local_sum = total_sum;
+                let s1 = (slots[index] >> 31) as i32;
+                let pad_value = small_pad[j * SLOT_LENGTH + index];
+                if s1 == 0 {
+                    local_sum -= pad_value;
+                } else {
+                    local_sum += pad_value;
                 }
-                
-                #[cfg(not(feature = "nightly"))]
-                {
-                    let mut sum = slots[index];
-                    let offset = j * SLOT_LENGTH;
-                    for k in 0..index {
-                        let pad = small_pad[offset + k];
-                        sum = if slots[k] >> 31 == 0 {
-                            sum.wrapping_add(pad)
-                        } else {
-                            sum.wrapping_sub(pad)
-                        };
-                    }
-                    for k in (index + 1)..SLOT_LENGTH {
-                        let pad = small_pad[offset + k];
-                        sum = if slots[k] >> 31 == 0 {
-                            sum.wrapping_add(pad)
-                        } else {
-                            sum.wrapping_sub(pad)
-                        };
-                    }
 
-                    slots[index] = sum;
-                }
+                // Apply the sum to the slot
+                slots[index] += local_sum;
+
+                // Update the total sum
+                let s2 = (slots[index] >> 31) as i32;
+                total_sum -= 2 * small_pad[j * SLOT_LENGTH + index] * (-s1 + s2) as u32;
             }
         }
     }
