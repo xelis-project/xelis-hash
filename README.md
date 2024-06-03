@@ -14,3 +14,7 @@ Stage 3 is expected to do a lot of random access in memory while being forced to
 A branching part is included in the inner loop to be power-hungry and reduce efficiency of FPGA and GPUs.
 
 Final stage is using Blake3 algorithm to hash the whole scratchpad to give a final good-quality hash.
+
+## Features
+
+It is recommended to use the `v2` feature, but previous iteration is available in `v1` feature also.
