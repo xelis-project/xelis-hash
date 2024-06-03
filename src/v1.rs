@@ -1,8 +1,7 @@
 use aes::cipher::generic_array::GenericArray;
-use thiserror::Error as ThisError;
 use tiny_keccak::keccakp;
 
-use crate::{Hash, HASH_SIZE};
+use crate::{Hash, HASH_SIZE, Error};
 
 // These are tweakable parameters
 pub const MEMORY_SIZE: usize = 32768;
@@ -84,18 +83,14 @@ impl AlignedInput {
 
     // Retrieve the input as a mutable slice
     pub fn as_mut_slice(&mut self) -> Result<&mut [u8; BYTES_ARRAY_INPUT], Error> {
-        bytemuck::cast_slice_mut(&mut self.data).try_into().map_err(|_| Error)
+        bytemuck::cast_slice_mut(&mut self.data).try_into().map_err(|_| Error::FormatError)
     }
 
     // Retrieve the input as a slice
     pub fn as_slice(&self) -> Result<&[u8; BYTES_ARRAY_INPUT], Error> {
-        bytemuck::cast_slice(&self.data).try_into().map_err(|_| Error)
+        bytemuck::cast_slice(&self.data).try_into().map_err(|_| Error::FormatError)
     }
 }
-
-#[derive(Debug, ThisError)]
-#[error("Error while hashing")]
-pub struct Error;
 
 #[inline(always)]
 fn stage_1(input: &mut [u64; KECCAK_WORDS], scratch_pad: &mut [u64; MEMORY_SIZE], a: (usize, usize), b: (usize, usize)) {
@@ -131,7 +126,7 @@ fn stage_1(input: &mut [u64; KECCAK_WORDS], scratch_pad: &mut [u64; MEMORY_SIZE]
 // NOTE: The scratchpad is completely overwritten in stage 1  and can be reused without any issues
 pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
     let int_input: &mut [u64; KECCAK_WORDS] = bytemuck::try_from_bytes_mut(input)
-        .map_err(|_| Error)?;
+        .map_err(|e| Error::CastError(e))?;
 
     // stage 1
     let scratch_pad = scratch_pad.as_mut_slice();
@@ -142,9 +137,9 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
     let mut slots: [u32; SLOT_LENGTH] = [0; SLOT_LENGTH];
     // this is equal to MEMORY_SIZE, just in u32 format
     let small_pad: &mut [u32; MEMORY_SIZE * 2] = bytemuck::try_cast_slice_mut(scratch_pad)
-        .map_err(|_| Error)?
+        .map_err(|e| Error::CastError(e))?
         .try_into()
-        .map_err(|_| Error)?;
+        .map_err(|_| Error::FormatError)?;
 
     slots.copy_from_slice(&small_pad[small_pad.len() - SLOT_LENGTH..]);
 
@@ -214,7 +209,7 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
 
         aes::hazmat::cipher_round(&mut block, &key);
 
-        let hash1 = u64::from_le_bytes(block[0..8].try_into().map_err(|_| Error)?);
+        let hash1 = u64::from_le_bytes(block[0..8].try_into().map_err(|_| Error::FormatError)?);
         let hash2 = mem_a ^ mem_b;
 
         let mut result = !(hash1 ^ hash2);
