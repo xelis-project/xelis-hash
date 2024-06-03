@@ -9,7 +9,11 @@ edition = "2021"
 aes = { version = "0.8.3", features = ["hazmat"] }
 bytemuck = { version = "1.15.0", features = ["derive"] }
 thiserror = "1.0.58"
-tiny-keccak = { version = "2.0", features = ["k12"] }
+blake3 = "1.5.1"
+chacha20 = "0.9.1"
+
+[dev-dependencies]
+rand = "0.8.5"
 
 [profile.dev]
 opt-level = 3
