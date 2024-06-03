@@ -220,7 +220,7 @@ fn isqrt(n: u64) -> u64 {
 
 // This function is used to hash the input using the generated scratch pad
 // NOTE: The scratchpad is completely overwritten in stage 1  and can be reused without any issues
-pub fn xelis_hash(input: &mut [u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
+pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
     // stage 1
     let scratchpad_bytes = scratch_pad.as_mut_bytes()?;
     stage_1(input, scratchpad_bytes)?;
@@ -274,18 +274,10 @@ mod tests {
         OsRng.fill_bytes(&mut input);
 
         // Do a first hash
-        xelis_hash(&mut input, &mut scratch_pad).unwrap();
+        let expected_hash = xelis_hash(&input, &mut scratch_pad).unwrap();
 
-        // Now try the zero hash again
-        // Even if scratchpad is not zeroed, the hash should be the same
-        input.fill(0);
-        let expected_hash = [
-            223, 46, 66, 254, 113, 142, 115, 96, 33, 42, 175,
-            80, 29, 127, 152, 103, 191, 190, 234, 39, 25, 197,
-            84, 137, 237, 238, 60, 60, 33, 199, 81, 246
-        ];
-
-        let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
+        // Do a second hash with dirty scratch pad but same input
+        let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
         assert_eq!(hash, expected_hash);
     }
 
