@@ -158,33 +158,33 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
                 9 => result ^ a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = ((a as u128) << 64) | (b as u128);
-                    let t2 = c as u128 + 1;
-                    result ^ (t1 % t2) as u64
+                    let t2 = (c as u128).wrapping_add(1);
+                    result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 11 => {
                     let t1 = (b as u128)<<64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128)<<64 | a as u128 + 2;
-                    result ^ (t1 % t2) as u64
+                    let t2 = (result.rotate_left(r as u32) as u128)<<64 | (a as u128).wrapping_add(2);
+                    result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 12 => {
                     let t1 = ((c as u128)<<64) | (a as u128);
-                    let t2 = b as u128 + 3;
-                    result ^ (t1 / t2) as u64
+                    let t2 = (b as u128).wrapping_add(3);
+                    result ^ (t1.wrapping_div(t2)) as u64
                 },
                 13 => {
                     let t1 = (result.rotate_left(r as u32) as u128)<<64 | b as u128;
-                    let t2 = (a as u128)<<64 | c as u128 + 4;
-                    result ^ (t1 / t2) as u64
+                    let t2 = (a as u128)<<64 | (c as u128).wrapping_add(4);
+                    result ^ (t1.wrapping_div(t2)) as u64
                 },
                 14 => {
                     let t1 = ((b as u128)<<64) | a as u128;
                     let t2 = c as u128;
-                    result ^ ((t1 * t2)>>64) as u64
+                    result ^ ((t1.wrapping_mul(t2))>>64) as u64
                 },
                 15 => {
                     let t1 = (a as u128)<<64 | c as u128;
                     let t2 = (result.rotate_right(r as u32) as u128)<<64 | b as u128;
-                    result ^ ((t1 * t2)>>64) as u64
+                    result ^ ((t1.wrapping_mul(t2))>>64) as u64
                 },
                 _ => unreachable!(),
             };
@@ -208,11 +208,11 @@ fn isqrt(n: u64) -> u64 {
     }
 
     let mut x = n;
-    let mut y = (x + 1) >> 1;
+    let mut y = (x.wrapping_add(1)) >> 1;
 
     while y < x {
         x = y;
-        y = (x + n / x) >> 1;
+        y = (x.wrapping_add(n.wrapping_div(x))) >> 1;
     }
 
     x
