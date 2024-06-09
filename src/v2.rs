@@ -11,7 +11,7 @@ use crate::{Error, Hash};
 // Memory size is the size of the scratch pad in u64s
 const MEMORY_SIZE: usize = 429 * 256;
 // Scratchpad iterations in stage 3
-const SCRATCHPAD_ITERS: usize = 5;
+const SCRATCHPAD_ITERS: usize = 3;
 // Buffer size for stage 3 (inner loop iterations)
 const BUFFER_SIZE: usize = MEMORY_SIZE / 2;
 
@@ -158,33 +158,33 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
                 9 => result ^ a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = ((a as u128) << 64) | (b as u128);
-                    let t2 = (c as u128).wrapping_add(1);
+                    let t2 = c as u128 | 1;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 11 => {
-                    let t1 = (b as u128)<<64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128)<<64 | (a as u128).wrapping_add(2);
+                    let t1 = (b as u128) << 64 | c as u128;
+                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | a as u128 | 2;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 12 => {
                     let t1 = ((c as u128)<<64) | (a as u128);
-                    let t2 = (b as u128).wrapping_add(3);
+                    let t2 = b as u128 | 4;
                     result ^ (t1.wrapping_div(t2)) as u64
                 },
                 13 => {
-                    let t1 = (result.rotate_left(r as u32) as u128)<<64 | b as u128;
-                    let t2 = (a as u128)<<64 | (c as u128).wrapping_add(4);
-                    result ^ (t1.wrapping_div(t2)) as u64
+                    let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
+                    let t2 = (a as u128) << 64 | c as u128 | 8;
+                    result ^ if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
-                    let t1 = ((b as u128)<<64) | a as u128;
+                    let t1 = ((b as u128) << 64) | a as u128;
                     let t2 = c as u128;
-                    result ^ ((t1.wrapping_mul(t2))>>64) as u64
+                    result ^ ((t1.wrapping_mul(t2)) >> 64) as u64
                 },
                 15 => {
-                    let t1 = (a as u128)<<64 | c as u128;
-                    let t2 = (result.rotate_right(r as u32) as u128)<<64 | b as u128;
-                    result ^ ((t1.wrapping_mul(t2))>>64) as u64
+                    let t1 = (a as u128) << 64 | c as u128;
+                    let t2 = (result.rotate_right(r as u32) as u128) << 64 | b as u128;
+                    result ^ ((t1.wrapping_mul(t2)) >> 64) as u64
                 },
                 _ => unreachable!(),
             };
@@ -288,9 +288,9 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
         let expected_hash = [
-            223, 46, 66, 254, 113, 142, 115, 96, 33, 42, 175,
-            80, 29, 127, 152, 103, 191, 190, 234, 39, 25, 197,
-            84, 137, 237, 238, 60, 60, 33, 199, 81, 246
+            94, 219, 244, 161, 10, 197, 209, 99, 4, 179, 17,
+            193, 100, 250, 197, 207, 20, 126, 40, 102, 105, 125,
+            247, 13, 144, 20, 53, 224, 192, 190, 183, 53
         ];
 
         assert_eq!(hash, expected_hash);
