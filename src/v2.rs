@@ -9,7 +9,8 @@ use crate::{Error, Hash};
 
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
-const MEMORY_SIZE: usize = 429 * 256;
+// In bytes, this is equal to ~ 440KB
+const MEMORY_SIZE: usize = 429 * 128;
 // Scratchpad iterations in stage 3
 const SCRATCHPAD_ITERS: usize = 3;
 // Buffer size for stage 3 (inner loop iterations)
@@ -288,9 +289,9 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
         let expected_hash = [
-            94, 219, 244, 161, 10, 197, 209, 99, 4, 179, 17,
-            193, 100, 250, 197, 207, 20, 126, 40, 102, 105, 125,
-            247, 13, 144, 20, 53, 224, 192, 190, 183, 53
+            203, 44, 144, 190, 181, 16, 222, 35, 137, 147,
+            96, 136, 37, 100, 199, 84, 29, 116, 0, 38, 178,
+            224, 189, 9, 224, 32, 45, 235, 130, 177, 255, 40
         ];
 
         assert_eq!(hash, expected_hash);
