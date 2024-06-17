@@ -8,7 +8,6 @@
 #include <sched.h>
 #include <unistd.h>
 #include <sodium.h>
-#include "chacha-opt/app/include/chacha.h"
 #include <wmmintrin.h>
 #include "BLAKE3/c/blake3.h"
 
