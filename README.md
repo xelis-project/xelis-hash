@@ -5,16 +5,26 @@ It is relying on two famous algorithms: ChaCha20 and Blake3.
 
 ## Summary
 
-Scratchpad of almost 1 MB is created (it can be reused at each hash).
+New version use a scratchpad of ~440 KB which can be reused at each hash.
 
 Stage 1 will randomize the scratchpad based on the input used as a key for the ChaCha20 stream cipher.
-The input is splitted in 32 bytes chunks, it cannot be parallelized due to the nonce based on the previous iteration.
+First nonce is based on the first 12 bytes of the input's blake3 hash result.
+The input is splitted into several 32 bytes chunks padded with zeroes if size is smaller.
+It cannot be parallelized due to the nonce based on the previous iteration.
+
+Stage 2 has been removed has the whole work is now done in stage 3.
 
 Stage 3 is expected to do a lot of random access in memory while being forced to stay sequential.
+There is 4 reads and 2 writes per iteration, making it memory bound.
 A branching part is included in the inner loop to be power-hungry and reduce efficiency of FPGA and GPUs.
 
-Final stage is using Blake3 algorithm to hash the whole scratchpad to give a final good-quality hash.
+(Final) stage 4 is using Blake3 algorithm to hash the whole scratchpad to give a final good-quality hash.
+It is also used to prevent skipping a part of the scratchpad, to force it to be fully computed.
+
+Blake3 and ChaCha20 are used as they are really fast and can be highly parallelized, one thread can have high hashrate to reduce verification time.
+
+Expected time per hash is around 1.20-1.50ms.
 
 ## Features
 
-It is recommended to use the `v2` feature, but previous iteration is available in `v1` feature also.
+It is recommended to use the `v2` feature, but for compatibility, previous version is also available in `v1` feature.
