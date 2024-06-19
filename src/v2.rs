@@ -277,19 +277,25 @@ mod tests {
             input[0] = i as u8;
             std::hint::black_box(stage_1(&mut input, &mut scratch_pad).unwrap());
         }
-        println!("Stage 1 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
+        let stage1: f64 = instant.elapsed().as_micros() as f64;
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
             std::hint::black_box(stage_3(scratch_pad.as_mut_slice()).unwrap());
         }
-        println!("Stage 3 took: {}ms", instant.elapsed().as_millis() / ITERATIONS as u128);
+        let stage3: f64 = instant.elapsed().as_micros() as f64;
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
             std::hint::black_box(blake3_hash(scratch_pad.as_mut_bytes().unwrap()));
         }
-        println!("Stage 4 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
+        let stage4: f64 = instant.elapsed().as_micros() as f64;
+
+        let total = stage1+stage3+stage4;
+
+        println!("Stage 1 took: {:.1}µs ({:.2}% of total)", stage1 / ITERATIONS as f64, stage1/total*100f64);
+        println!("Stage 3 took: {:.1}µs ({:.2}% of total)", stage3 / ITERATIONS as f64, stage3/total*100f64);
+        println!("Stage 4 took: {:.1}µs ({:.2}% of total)", stage4 / ITERATIONS as f64, stage4/total*100f64);
     }
 
     #[test]
