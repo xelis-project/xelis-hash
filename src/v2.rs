@@ -1,9 +1,5 @@
 use aes::cipher::generic_array::GenericArray;
 use blake3::hash as blake3_hash;
-use chacha20::{
-    cipher::{KeyIvInit, StreamCipher},
-    ChaCha20,
-};
 
 use crate::{Error, Hash};
 
@@ -17,9 +13,7 @@ const SCRATCHPAD_ITERS: usize = 3;
 const BUFFER_SIZE: usize = MEMORY_SIZE / 2;
 
 // Stage 1 config
-const CHUNK_SIZE: usize = 32;
-const NONCE_SIZE: usize = 12;
-const OUTPUT_SIZE: usize = MEMORY_SIZE * 8;
+const AES_SIZE: usize = 16;
 
 // Stage 3 AES key
 const KEY: [u8; 16] = *b"xelishash-pow-v2";
@@ -60,48 +54,23 @@ impl Default for ScratchPad {
 // This stage is responsible for generating the scratch pad
 // The scratch pad is generated using Chacha20 with a custom nonce
 // that is updated after each iteration
-fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), Error> {
-    let mut output_offset = 0;
-    let mut nonce = [0u8; NONCE_SIZE];
+fn stage_1(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<(), Error> {
+    let mut key = GenericArray::from([0u8; AES_SIZE]);
 
     // Generate the nonce from the input
     let input_hash: Hash = blake3_hash(input).into();
-    nonce.copy_from_slice(&input_hash[..NONCE_SIZE]);
+    key.copy_from_slice(&input_hash[..AES_SIZE]);
 
-    let num_chunks = (input.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let scratchpad_bytes = scratch_pad.as_mut_bytes().unwrap();
 
-    for (chunk_index, chunk) in input.chunks(CHUNK_SIZE).enumerate() {
-        // Pad the chunk to 32 bytes if it is shorter
-        let mut key = [0u8; CHUNK_SIZE];
-        key[..chunk.len()].copy_from_slice(chunk);
+    // Generate the scratchpad by applying AES round to block sequentially
+    let mut block = GenericArray::from([0u8; AES_SIZE]);
+    for i in 0..(MEMORY_SIZE*8)/AES_SIZE {
+        let index = i * AES_SIZE;
 
-        let mut cipher = ChaCha20::new(&key.into(), &nonce.into());
+        aes::hazmat::cipher_round(&mut block, &key);
 
-        // Calculate the remaining size and how much to generate this iteration
-        let remaining_output_size = OUTPUT_SIZE - output_offset;
-        // Remaining chunks
-        let chunks_left = num_chunks - chunk_index;
-        let chunk_output_size = remaining_output_size / chunks_left;
-        let current_output_size = remaining_output_size.min(chunk_output_size);
-
-        let mut temp_output = vec![0u8; current_output_size];
-
-        // Apply the keystream to the output
-        cipher.apply_keystream(&mut temp_output);
-
-        // Copy the output to the scratch pad
-        let offset = chunk_index * current_output_size;
-        scratch_pad[offset..offset+current_output_size].copy_from_slice(&temp_output);
-
-        output_offset += current_output_size;
-
-        // Update the nonce with the last NONCE_SIZE bytes of temp_output
-        let nonce_start = current_output_size.saturating_sub(NONCE_SIZE);
-
-        // Reset the nonce to zero
-        nonce.fill(0);
-        // Copy the new nonce
-        nonce.copy_from_slice(&temp_output[nonce_start..]);
+        scratchpad_bytes[index..index+AES_SIZE].copy_from_slice(&block);
     }
 
     Ok(())
@@ -223,8 +192,7 @@ fn isqrt(n: u64) -> u64 {
 // NOTE: The scratchpad is completely overwritten in stage 1  and can be reused without any issues
 pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
     // stage 1
-    let scratchpad_bytes = scratch_pad.as_mut_bytes()?;
-    stage_1(input, scratchpad_bytes)?;
+    stage_1(input, scratch_pad)?;
 
     let scratch_pad = scratch_pad.as_mut_slice();
     
@@ -289,9 +257,8 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
         let expected_hash = [
-            203, 44, 144, 190, 181, 16, 222, 35, 137, 147,
-            96, 136, 37, 100, 199, 84, 29, 116, 0, 38, 178,
-            224, 189, 9, 224, 32, 45, 235, 130, 177, 255, 40
+            192, 113, 203, 92, 213, 123, 33, 77, 181, 109, 22, 73, 76, 223, 58, 188,
+            81, 178, 30, 147, 198, 186, 79, 113, 154, 37, 168, 146, 107, 133, 113, 238
         ];
 
         assert_eq!(hash, expected_hash);
@@ -308,7 +275,7 @@ mod tests {
         let instant = Instant::now();
         for i in 0..ITERATIONS {
             input[0] = i as u8;
-            std::hint::black_box(stage_1(&mut input, scratch_pad.as_mut_bytes().unwrap()).unwrap());
+            std::hint::black_box(stage_1(&mut input, &mut scratch_pad).unwrap());
         }
         println!("Stage 1 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
 
@@ -342,9 +309,8 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
 
         let expected_hash = [
-            1, 93, 81, 131, 95, 75, 134, 32, 61, 179, 217, 243,
-            212, 132, 191, 89, 98, 98, 214, 61, 217, 127, 124,
-            152, 220, 30, 245, 117, 230, 226, 255, 139
+            98, 122, 36, 38, 105, 219, 9, 148, 157, 82, 95, 233, 85, 172, 37, 246,
+            150, 156, 40, 238, 77, 32, 122, 131, 198, 100, 23, 61, 78, 77, 239, 73
         ];
 
         assert_eq!(hash, expected_hash);
