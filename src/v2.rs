@@ -128,22 +128,22 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
                 9 => result ^ a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = ((a as u128) << 64) | (b as u128);
-                    let t2 = c as u128 | 1;
+                    let t2 = (c | 1) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 11 => {
                     let t1 = (b as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | a as u128 | 2;
+                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | (a | 2) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 12 => {
                     let t1 = ((c as u128)<<64) | (a as u128);
-                    let t2 = b as u128 | 4;
+                    let t2 = (b | 4) as u128;
                     result ^ (t1.wrapping_div(t2)) as u64
                 },
                 13 => {
                     let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
-                    let t2 = (a as u128) << 64 | c as u128 | 8;
+                    let t2 = (a as u128) << 64 | (c | 8) as u128;
                     result ^ if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
