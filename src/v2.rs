@@ -2,10 +2,10 @@ use aes::cipher::generic_array::GenericArray;
 use blake3::hash as blake3_hash;
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
-    ChaCha20,
+    ChaCha8,
 };
 
-use crate::{Error, Hash};
+use crate::{Error, Hash, HASH_SIZE};
 
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
@@ -58,24 +58,28 @@ impl Default for ScratchPad {
 
 // Stage 1 of the hashing algorithm
 // This stage is responsible for generating the scratch pad
-// The scratch pad is generated using Chacha20 with a custom nonce
+// The scratch pad is generated using ChaCha8 with a custom nonce
 // that is updated after each iteration
 fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), Error> {
     let mut output_offset = 0;
     let mut nonce = [0u8; NONCE_SIZE];
 
     // Generate the nonce from the input
-    let input_hash: Hash = blake3_hash(input).into();
+    let mut input_hash: Hash = blake3_hash(input).into();
     nonce.copy_from_slice(&input_hash[..NONCE_SIZE]);
 
     let num_chunks = (input.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     for (chunk_index, chunk) in input.chunks(CHUNK_SIZE).enumerate() {
-        // Pad the chunk to 32 bytes if it is shorter
-        let mut key = [0u8; CHUNK_SIZE];
-        key[..chunk.len()].copy_from_slice(chunk);
+        // Concatenate the input hash with the chunk
+        let mut tmp = [0u8; HASH_SIZE * 2];
+        tmp[0..HASH_SIZE].copy_from_slice(&input_hash);
+        tmp[HASH_SIZE..HASH_SIZE + chunk.len()].copy_from_slice(chunk);
 
-        let mut cipher = ChaCha20::new(&key.into(), &nonce.into());
+        // Hash it to not trust the input
+        input_hash = blake3_hash(&tmp).into();
+
+        let mut cipher = ChaCha8::new(&input_hash.into(), &nonce.into());
 
         // Calculate the remaining size and how much to generate this iteration
         let remaining_output_size = OUTPUT_SIZE - output_offset;
@@ -98,8 +102,6 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
         // Update the nonce with the last NONCE_SIZE bytes of temp_output
         let nonce_start = current_output_size.saturating_sub(NONCE_SIZE);
 
-        // Reset the nonce to zero
-        nonce.fill(0);
         // Copy the new nonce
         nonce.copy_from_slice(&temp_output[nonce_start..]);
     }
@@ -159,22 +161,22 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
                 9 => result ^ a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = ((a as u128) << 64) | (b as u128);
-                    let t2 = c as u128 | 1;
+                    let t2 = (c | 1) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 11 => {
                     let t1 = (b as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | a as u128 | 2;
+                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | (a | 2) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 12 => {
                     let t1 = ((c as u128)<<64) | (a as u128);
-                    let t2 = b as u128 | 4;
+                    let t2 = (b | 4) as u128;
                     result ^ (t1.wrapping_div(t2)) as u64
                 },
                 13 => {
                     let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
-                    let t2 = (a as u128) << 64 | c as u128 | 8;
+                    let t2 = (a as u128) << 64 | (c | 8) as u128;
                     result ^ if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
@@ -251,7 +253,7 @@ mod tests {
 
     #[test]
     fn benchmark_cpu_hash() {
-        const ITERATIONS: u32 = 1000;
+        const ITERATIONS: u32 = 10000;
         let mut input = [0u8; 112];
         let mut scratch_pad = ScratchPad::default();
 
@@ -299,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_xelis_stages() {
-        const ITERATIONS: usize = 1000;
+        const ITERATIONS: usize = 10000;
 
         let mut input = [0u8; 112];
         OsRng.fill_bytes(&mut input);
@@ -316,7 +318,7 @@ mod tests {
         for _ in 0..ITERATIONS {
             std::hint::black_box(stage_3(scratch_pad.as_mut_slice()).unwrap());
         }
-        println!("Stage 3 took: {}ms", instant.elapsed().as_millis() / ITERATIONS as u128);
+        println!("Stage 3 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
