@@ -61,6 +61,11 @@ impl Default for ScratchPad {
 // The scratch pad is generated using ChaCha8 with a custom nonce
 // that is updated after each iteration
 fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), Error> {
+    // Reset the scratchpad to 0
+    // This is done to ensure that the scratchpad is clean
+    // and prevent us to do multiple heap allocations in below loop
+    scratch_pad.fill(0);
+
     let mut output_offset = 0;
     let mut nonce = [0u8; NONCE_SIZE];
 
@@ -88,14 +93,10 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
         let chunk_output_size = remaining_output_size / chunks_left;
         let current_output_size = remaining_output_size.min(chunk_output_size);
 
-        let mut temp_output = vec![0u8; current_output_size];
-
         // Apply the keystream to the output
-        cipher.apply_keystream(&mut temp_output);
-
-        // Copy the output to the scratch pad
         let offset = chunk_index * current_output_size;
-        scratch_pad[offset..offset+current_output_size].copy_from_slice(&temp_output);
+        let part = &mut scratch_pad[offset..offset+current_output_size];
+        cipher.apply_keystream(part);
 
         output_offset += current_output_size;
 
@@ -103,7 +104,7 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
         let nonce_start = current_output_size.saturating_sub(NONCE_SIZE);
 
         // Copy the new nonce
-        nonce.copy_from_slice(&temp_output[nonce_start..]);
+        nonce.copy_from_slice(&part[nonce_start..]);
     }
 
     Ok(())
@@ -291,9 +292,9 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
         let expected_hash = [
-            203, 44, 144, 190, 181, 16, 222, 35, 137, 147,
-            96, 136, 37, 100, 199, 84, 29, 116, 0, 38, 178,
-            224, 189, 9, 224, 32, 45, 235, 130, 177, 255, 40
+            126, 219, 112, 240, 116, 133, 115, 144, 39, 40, 164,
+            105, 30, 158, 45, 126, 64, 67, 238, 52, 200, 35,
+            161, 19, 144, 211, 214, 225, 95, 190, 146, 27
         ];
 
         assert_eq!(hash, expected_hash);
@@ -344,9 +345,9 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
 
         let expected_hash = [
-            1, 93, 81, 131, 95, 75, 134, 32, 61, 179, 217, 243,
-            212, 132, 191, 89, 98, 98, 214, 61, 217, 127, 124,
-            152, 220, 30, 245, 117, 230, 226, 255, 139
+            199, 114, 154, 28, 4, 164, 196, 178, 117, 17, 148,
+            203, 125, 228, 51, 145, 162, 222, 106, 202, 205,
+            55, 244, 178, 94, 29, 248, 242, 98, 221, 158, 179
         ];
 
         assert_eq!(hash, expected_hash);
