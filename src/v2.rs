@@ -7,6 +7,9 @@ use chacha20::{
 
 use crate::{Error, Hash, HASH_SIZE};
 
+#[cfg(feature = "ops_tracker")]
+use crate::ops_tracker::{OpsTracker, MemOp};
+
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
 // In bytes, this is equal to ~ 440KB
@@ -115,7 +118,7 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
 // Its goal is to have lot of random memory accesses
 // and some branching to make it hard to optimize on GPUs
 // it shouldn't be possible to parallelize this stage
-fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
+fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "ops_tracker")] tracker: &mut OpsTracker) -> Result<(), Error> {
     let key = GenericArray::from(KEY);
     let mut block = GenericArray::from([0u8; 16]);
     let buffer_size = BUFFER_SIZE as u64;
@@ -128,8 +131,17 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
     let mut r: usize = 0;
 
     for i in 0..SCRATCHPAD_ITERS {
-        let mem_a = mem_buffer_a[(addr_a % buffer_size) as usize];
-        let mem_b = mem_buffer_b[(addr_b % buffer_size) as usize];
+        let index_a = (addr_a % buffer_size) as usize;
+        let index_b = (addr_b % buffer_size) as usize;
+
+        #[cfg(feature = "ops_tracker")]
+        {
+            tracker.add_mem_op(index_a, MemOp::Read);
+            tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
+        }
+
+        let mem_a = mem_buffer_a[index_a];
+        let mem_b = mem_buffer_b[index_b];
 
         block[..8].copy_from_slice(&mem_b.to_le_bytes());
         block[8..].copy_from_slice(&mem_a.to_le_bytes());
@@ -144,12 +156,34 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
         let mut result = !(hash1 ^ hash2);
 
         for j in 0..BUFFER_SIZE {
-            let a = mem_buffer_a[(result % buffer_size) as usize];
-            let b = mem_buffer_b[(!result.rotate_right(r as u32) % buffer_size) as usize];
+            let index_a = (result % buffer_size) as usize;
+            let index_b = (!result.rotate_right(r as u32) % buffer_size) as usize;
+
+            #[cfg(feature = "ops_tracker")]
+            {
+                tracker.add_mem_op(index_a, MemOp::Read);
+                tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
+            }
+
+            let a = mem_buffer_a[index_a];
+            let b = mem_buffer_b[index_b];
+
+            #[cfg(feature = "ops_tracker")]
+            {
+                // This is the same index in scratchpad
+                tracker.add_mem_op(r, MemOp::Read);
+            }
+
             let c = if r < BUFFER_SIZE {mem_buffer_a[r]} else {mem_buffer_b[r-BUFFER_SIZE]};
             r = if r < MEMORY_SIZE-1 {r+1} else {0};
 
-            let v = match result.rotate_left(c as u32) & 0xf {
+            let branch_idx = (result.rotate_left(c as u32) & 0xf) as u8;
+            #[cfg(feature = "ops_tracker")]
+            {
+                tracker.add_branch(branch_idx);
+            }
+
+            let v = match branch_idx {
                 0 => result ^ c.rotate_left(i.wrapping_mul(j) as u32) ^ b,
                 1 => result ^ c.rotate_right(i.wrapping_mul(j) as u32) ^ a,
                 2 => result ^ a ^ b ^ c,
@@ -195,6 +229,12 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
 
             result = v.rotate_left(1);
 
+            #[cfg(feature = "ops_tracker")]
+            {
+                tracker.add_mem_op(BUFFER_SIZE-j-1, MemOp::Write);
+                tracker.add_mem_op(BUFFER_SIZE+j, MemOp::Write);
+            }
+
             let t = mem_buffer_a[BUFFER_SIZE-j-1] ^ result;
             mem_buffer_a[BUFFER_SIZE-j-1] = t;
             mem_buffer_b[j] ^= t.rotate_right(result as u32);
@@ -224,7 +264,7 @@ fn isqrt(n: u64) -> u64 {
 
 // This function is used to hash the input using the generated scratch pad
 // NOTE: The scratchpad is completely overwritten in stage 1  and can be reused without any issues
-pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
+pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad, #[cfg(feature = "ops_tracker")] distribution: &mut OpsTracker) -> Result<Hash, Error> {
     // stage 1
     let scratchpad_bytes = scratch_pad.as_mut_bytes()?;
     stage_1(input, scratchpad_bytes)?;
@@ -234,7 +274,7 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Er
     // stage 2 got removed as it got completely optimized on GPUs
 
     // stage 3
-    stage_3(scratch_pad)?;
+    stage_3(scratch_pad, #[cfg(feature = "ops_tracker")] distribution)?;
 
     // stage 4
     let scratchpad_bytes: &[u8] = bytemuck::try_cast_slice(scratch_pad.as_slice())
@@ -248,13 +288,13 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Er
 #[cfg(test)]
 mod tests {
     use rand::{rngs::OsRng, RngCore};
-
-    use super::*;
     use std::{time::Instant, hint};
+    use super::*;
+
+    const ITERATIONS: usize = 10000;
 
     #[test]
     fn benchmark_cpu_hash() {
-        const ITERATIONS: u32 = 10000;
         let mut input = [0u8; 112];
         let mut scratch_pad = ScratchPad::default();
 
@@ -262,7 +302,7 @@ mod tests {
         for i in 0..ITERATIONS {
             input[0] = i as u8;
             input[1] = (i >> 8) as u8;
-            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad)).unwrap();
+            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE))).unwrap();
         }
 
         let elapsed = start.elapsed();
@@ -278,10 +318,10 @@ mod tests {
         OsRng.fill_bytes(&mut input);
 
         // Do a first hash
-        let expected_hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let expected_hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         // Do a second hash with dirty scratch pad but same input
-        let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         assert_eq!(hash, expected_hash);
     }
 
@@ -290,7 +330,7 @@ mod tests {
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
 
-        let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
             126, 219, 112, 240, 116, 133, 115, 144, 39, 40, 164,
             105, 30, 158, 45, 126, 64, 67, 238, 52, 200, 35,
@@ -302,8 +342,6 @@ mod tests {
 
     #[test]
     fn test_xelis_stages() {
-        const ITERATIONS: usize = 10000;
-
         let mut input = [0u8; 112];
         OsRng.fill_bytes(&mut input);
 
@@ -317,7 +355,7 @@ mod tests {
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
-            std::hint::black_box(stage_3(scratch_pad.as_mut_slice()).unwrap());
+            std::hint::black_box(stage_3(scratch_pad.as_mut_slice(), #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap());
         }
         println!("Stage 3 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
 
@@ -342,7 +380,7 @@ mod tests {
         ];
 
         let mut scratch_pad = ScratchPad::default();
-        let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "ops_tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
             199, 114, 154, 28, 4, 164, 196, 178, 117, 17, 148,
@@ -351,5 +389,20 @@ mod tests {
         ];
 
         assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    #[cfg(feature = "ops_tracker")]
+    fn test_distribution() {
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; 112];
+        let mut distribution = OpsTracker::new(MEMORY_SIZE);
+        for _ in 0..ITERATIONS {
+            OsRng.fill_bytes(&mut input);
+            let _ = xelis_hash(&input, &mut scratch_pad, &mut distribution).unwrap();
+        }
+
+        println!("{:?}", distribution.get_mem_accesses());
+        println!("{:?}", distribution.get_branches());
     }
 }

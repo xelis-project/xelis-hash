@@ -5,6 +5,9 @@ pub mod v1;
 #[cfg(feature = "v2")]
 pub mod v2;
 
+#[cfg(feature = "ops_tracker")]
+pub mod ops_tracker;
+
 // Number of bytes in a hash
 const HASH_SIZE: usize = 32;
 
