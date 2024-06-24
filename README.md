@@ -1,7 +1,7 @@
 # XELIS Hash
 
 XELIS Hash is expected to run on CPU and GPUs with a controlled gap.
-It is relying on two famous algorithms: ChaCha20 and Blake3.
+It is relying on two famous algorithms: ChaCha8 and Blake3.
 
 ## Summary
 
