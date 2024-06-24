@@ -7,7 +7,9 @@ It is relying on two famous algorithms: ChaCha8 and Blake3.
 
 New version use a scratchpad of ~440 KB which can be reused at each hash.
 
-Stage 1 will randomize the scratchpad based on the input used as a key for the ChaCha20 stream cipher.
+Stage 1 will randomize the scratchpad based on the input used as a key for the ChaCha8 stream cipher.
+The key is a Blake3 hash of (previous hash + input chunk).
+ 
 First nonce is based on the first 12 bytes of the input's blake3 hash result.
 The input is splitted into several 32 bytes chunks padded with zeroes if size is smaller.
 It cannot be parallelized due to the nonce based on the previous iteration.
