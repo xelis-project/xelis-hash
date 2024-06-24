@@ -23,7 +23,7 @@ A branching part is included in the inner loop to be power-hungry and reduce eff
 (Final) stage 4 is using Blake3 algorithm to hash the whole scratchpad to give a final good-quality hash.
 It is also used to prevent skipping a part of the scratchpad, to force it to be fully computed.
 
-Blake3 and ChaCha20 are used as they are really fast and can be highly parallelized, one thread can have high hashrate to reduce verification time.
+Blake3 and ChaCha8 are used as they are really fast and can be highly parallelized, one thread can have high hashrate to reduce verification time.
 
 Expected time per hash is around 1.20-1.50ms.
 
