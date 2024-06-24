@@ -2,10 +2,13 @@ use aes::cipher::generic_array::GenericArray;
 use blake3::hash as blake3_hash;
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
-    ChaCha20,
+    ChaCha8,
 };
 
-use crate::{Error, Hash};
+use crate::{Error, Hash, HASH_SIZE};
+
+#[cfg(feature = "tracker")]
+use crate::tracker::{OpsTracker, MemOp};
 
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
@@ -58,24 +61,33 @@ impl Default for ScratchPad {
 
 // Stage 1 of the hashing algorithm
 // This stage is responsible for generating the scratch pad
-// The scratch pad is generated using Chacha20 with a custom nonce
+// The scratch pad is generated using ChaCha8 with a custom nonce
 // that is updated after each iteration
 fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), Error> {
+    // Reset the scratchpad to 0
+    // This is done to ensure that the scratchpad is clean
+    // and prevent us to do multiple heap allocations in below loop
+    scratch_pad.fill(0);
+
     let mut output_offset = 0;
     let mut nonce = [0u8; NONCE_SIZE];
 
     // Generate the nonce from the input
-    let input_hash: Hash = blake3_hash(input).into();
+    let mut input_hash: Hash = blake3_hash(input).into();
     nonce.copy_from_slice(&input_hash[..NONCE_SIZE]);
 
     let num_chunks = (input.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     for (chunk_index, chunk) in input.chunks(CHUNK_SIZE).enumerate() {
-        // Pad the chunk to 32 bytes if it is shorter
-        let mut key = [0u8; CHUNK_SIZE];
-        key[..chunk.len()].copy_from_slice(chunk);
+        // Concatenate the input hash with the chunk
+        let mut tmp = [0u8; HASH_SIZE * 2];
+        tmp[0..HASH_SIZE].copy_from_slice(&input_hash);
+        tmp[HASH_SIZE..HASH_SIZE + chunk.len()].copy_from_slice(chunk);
 
-        let mut cipher = ChaCha20::new(&key.into(), &nonce.into());
+        // Hash it to not trust the input
+        input_hash = blake3_hash(&tmp).into();
+
+        let mut cipher = ChaCha8::new(&input_hash.into(), &nonce.into());
 
         // Calculate the remaining size and how much to generate this iteration
         let remaining_output_size = OUTPUT_SIZE - output_offset;
@@ -84,24 +96,18 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
         let chunk_output_size = remaining_output_size / chunks_left;
         let current_output_size = remaining_output_size.min(chunk_output_size);
 
-        let mut temp_output = vec![0u8; current_output_size];
-
         // Apply the keystream to the output
-        cipher.apply_keystream(&mut temp_output);
-
-        // Copy the output to the scratch pad
         let offset = chunk_index * current_output_size;
-        scratch_pad[offset..offset+current_output_size].copy_from_slice(&temp_output);
+        let part = &mut scratch_pad[offset..offset+current_output_size];
+        cipher.apply_keystream(part);
 
         output_offset += current_output_size;
 
         // Update the nonce with the last NONCE_SIZE bytes of temp_output
         let nonce_start = current_output_size.saturating_sub(NONCE_SIZE);
 
-        // Reset the nonce to zero
-        nonce.fill(0);
         // Copy the new nonce
-        nonce.copy_from_slice(&temp_output[nonce_start..]);
+        nonce.copy_from_slice(&part[nonce_start..]);
     }
 
     Ok(())
@@ -112,7 +118,7 @@ fn stage_1(input: &[u8], scratch_pad: &mut [u8; MEMORY_SIZE * 8]) -> Result<(), 
 // Its goal is to have lot of random memory accesses
 // and some branching to make it hard to optimize on GPUs
 // it shouldn't be possible to parallelize this stage
-fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
+fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tracker")] tracker: &mut OpsTracker) -> Result<(), Error> {
     let key = GenericArray::from(KEY);
     let mut block = GenericArray::from([0u8; 16]);
     let buffer_size = BUFFER_SIZE as u64;
@@ -125,8 +131,17 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
     let mut r: usize = 0;
 
     for i in 0..SCRATCHPAD_ITERS {
-        let mem_a = mem_buffer_a[(addr_a % buffer_size) as usize];
-        let mem_b = mem_buffer_b[(addr_b % buffer_size) as usize];
+        let index_a = (addr_a % buffer_size) as usize;
+        let index_b = (addr_b % buffer_size) as usize;
+
+        #[cfg(feature = "tracker")]
+        {
+            tracker.add_mem_op(index_a, MemOp::Read);
+            tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
+        }
+
+        let mem_a = mem_buffer_a[index_a];
+        let mem_b = mem_buffer_b[index_b];
 
         block[..8].copy_from_slice(&mem_b.to_le_bytes());
         block[8..].copy_from_slice(&mem_a.to_le_bytes());
@@ -141,12 +156,34 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
         let mut result = !(hash1 ^ hash2);
 
         for j in 0..BUFFER_SIZE {
-            let a = mem_buffer_a[(result % buffer_size) as usize];
-            let b = mem_buffer_b[(!result.rotate_right(r as u32) % buffer_size) as usize];
+            let index_a = (result % buffer_size) as usize;
+            let index_b = (!result.rotate_right(r as u32) % buffer_size) as usize;
+
+            #[cfg(feature = "tracker")]
+            {
+                tracker.add_mem_op(index_a, MemOp::Read);
+                tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
+            }
+
+            let a = mem_buffer_a[index_a];
+            let b = mem_buffer_b[index_b];
+
+            #[cfg(feature = "tracker")]
+            {
+                // This is the same index in scratchpad
+                tracker.add_mem_op(r, MemOp::Read);
+            }
+
             let c = if r < BUFFER_SIZE {mem_buffer_a[r]} else {mem_buffer_b[r-BUFFER_SIZE]};
             r = if r < MEMORY_SIZE-1 {r+1} else {0};
 
-            let v = match result.rotate_left(c as u32) & 0xf {
+            let branch_idx = (result.rotate_left(c as u32) & 0xf) as u8;
+            #[cfg(feature = "tracker")]
+            {
+                tracker.add_branch(branch_idx);
+            }
+
+            let v = match branch_idx {
                 0 => result ^ c.rotate_left(i.wrapping_mul(j) as u32) ^ b,
                 1 => result ^ c.rotate_right(i.wrapping_mul(j) as u32) ^ a,
                 2 => result ^ a ^ b ^ c,
@@ -159,22 +196,22 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
                 9 => result ^ a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = ((a as u128) << 64) | (b as u128);
-                    let t2 = c as u128 | 1;
+                    let t2 = (c | 1) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 11 => {
                     let t1 = (b as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | a as u128 | 2;
+                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | (a | 2) as u128;
                     result ^ (t1.wrapping_rem(t2)) as u64
                 },
                 12 => {
                     let t1 = ((c as u128)<<64) | (a as u128);
-                    let t2 = b as u128 | 4;
+                    let t2 = (b | 4) as u128;
                     result ^ (t1.wrapping_div(t2)) as u64
                 },
                 13 => {
                     let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
-                    let t2 = (a as u128) << 64 | c as u128 | 8;
+                    let t2 = (a as u128) << 64 | (c | 8) as u128;
                     result ^ if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
@@ -191,6 +228,12 @@ fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE]) -> Result<(), Error> {
             };
 
             result = v.rotate_left(1);
+
+            #[cfg(feature = "tracker")]
+            {
+                tracker.add_mem_op(BUFFER_SIZE-j-1, MemOp::Write);
+                tracker.add_mem_op(BUFFER_SIZE+j, MemOp::Write);
+            }
 
             let t = mem_buffer_a[BUFFER_SIZE-j-1] ^ result;
             mem_buffer_a[BUFFER_SIZE-j-1] = t;
@@ -221,7 +264,7 @@ fn isqrt(n: u64) -> u64 {
 
 // This function is used to hash the input using the generated scratch pad
 // NOTE: The scratchpad is completely overwritten in stage 1  and can be reused without any issues
-pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Error> {
+pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad, #[cfg(feature = "tracker")] distribution: &mut OpsTracker) -> Result<Hash, Error> {
     // stage 1
     let scratchpad_bytes = scratch_pad.as_mut_bytes()?;
     stage_1(input, scratchpad_bytes)?;
@@ -231,7 +274,7 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Er
     // stage 2 got removed as it got completely optimized on GPUs
 
     // stage 3
-    stage_3(scratch_pad)?;
+    stage_3(scratch_pad, #[cfg(feature = "tracker")] distribution)?;
 
     // stage 4
     let scratchpad_bytes: &[u8] = bytemuck::try_cast_slice(scratch_pad.as_slice())
@@ -245,13 +288,13 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad) -> Result<Hash, Er
 #[cfg(test)]
 mod tests {
     use rand::{rngs::OsRng, RngCore};
-
-    use super::*;
     use std::{time::Instant, hint};
+    use super::*;
+
+    const ITERATIONS: usize = 10000;
 
     #[test]
     fn benchmark_cpu_hash() {
-        const ITERATIONS: u32 = 1000;
         let mut input = [0u8; 112];
         let mut scratch_pad = ScratchPad::default();
 
@@ -259,7 +302,7 @@ mod tests {
         for i in 0..ITERATIONS {
             input[0] = i as u8;
             input[1] = (i >> 8) as u8;
-            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad)).unwrap();
+            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE))).unwrap();
         }
 
         let elapsed = start.elapsed();
@@ -275,10 +318,10 @@ mod tests {
         OsRng.fill_bytes(&mut input);
 
         // Do a first hash
-        let expected_hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let expected_hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         // Do a second hash with dirty scratch pad but same input
-        let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         assert_eq!(hash, expected_hash);
     }
 
@@ -287,11 +330,11 @@ mod tests {
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
 
-        let hash = xelis_hash(&mut input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            203, 44, 144, 190, 181, 16, 222, 35, 137, 147,
-            96, 136, 37, 100, 199, 84, 29, 116, 0, 38, 178,
-            224, 189, 9, 224, 32, 45, 235, 130, 177, 255, 40
+            126, 219, 112, 240, 116, 133, 115, 144, 39, 40, 164,
+            105, 30, 158, 45, 126, 64, 67, 238, 52, 200, 35,
+            161, 19, 144, 211, 214, 225, 95, 190, 146, 27
         ];
 
         assert_eq!(hash, expected_hash);
@@ -299,8 +342,6 @@ mod tests {
 
     #[test]
     fn test_xelis_stages() {
-        const ITERATIONS: usize = 1000;
-
         let mut input = [0u8; 112];
         OsRng.fill_bytes(&mut input);
 
@@ -314,9 +355,9 @@ mod tests {
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
-            std::hint::black_box(stage_3(scratch_pad.as_mut_slice()).unwrap());
+            std::hint::black_box(stage_3(scratch_pad.as_mut_slice(), #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap());
         }
-        println!("Stage 3 took: {}ms", instant.elapsed().as_millis() / ITERATIONS as u128);
+        println!("Stage 3 took: {} microseconds", instant.elapsed().as_micros() / ITERATIONS as u128);
 
         let instant = Instant::now();
         for _ in 0..ITERATIONS {
@@ -339,14 +380,43 @@ mod tests {
         ];
 
         let mut scratch_pad = ScratchPad::default();
-        let hash = xelis_hash(&input, &mut scratch_pad).unwrap();
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            1, 93, 81, 131, 95, 75, 134, 32, 61, 179, 217, 243,
-            212, 132, 191, 89, 98, 98, 214, 61, 217, 127, 124,
-            152, 220, 30, 245, 117, 230, 226, 255, 139
+            199, 114, 154, 28, 4, 164, 196, 178, 117, 17, 148,
+            203, 125, 228, 51, 145, 162, 222, 106, 202, 205,
+            55, 244, 178, 94, 29, 248, 242, 98, 221, 158, 179
         ];
 
         assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    #[cfg(feature = "tracker")]
+    fn test_distribution() {
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; 112];
+        let mut distribution = OpsTracker::new(MEMORY_SIZE);
+        for _ in 0..ITERATIONS {
+            OsRng.fill_bytes(&mut input);
+            let _ = xelis_hash(&input, &mut scratch_pad, &mut distribution).unwrap();
+        }
+
+        println!("{:?}", distribution.get_mem_accesses());
+        println!("{:?}", distribution.get_branches());
+        let mut min = usize::MAX;
+        let mut max = 0;
+
+        for accesses in distribution.get_mem_accesses() {
+            if *accesses < min {
+                min = *accesses;
+            }
+
+            if *accesses > max {
+                max = *accesses;
+            }
+        }
+
+        println!("Min: {}, Max: {}", min, max);
     }
 }

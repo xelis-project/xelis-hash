@@ -25,6 +25,8 @@ rand = "0.8.5"
 default = ["v1", "v2"]
 v1 = ["dep:tiny-keccak"]
 v2 = ["dep:blake3", "dep:chacha20"]
+# Only available in v2
+tracker = []
 
 
 [profile.dev]
