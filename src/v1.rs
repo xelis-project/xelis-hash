@@ -147,13 +147,13 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
     for _ in 0..ITERS {
         for j in 0..small_pad.len() / SLOT_LENGTH {
             // Initialize indices and precompute the total sum of small pad
-            let mut total_sum = 0;
+            let mut total_sum: u32 = 0;
             for k in 0..SLOT_LENGTH {
                 indices[k] = k as u16;
                 if slots[k] >> 31 == 0 {
-                    total_sum += small_pad[j * SLOT_LENGTH + k];
+                    total_sum = total_sum.wrapping_add(small_pad[j * SLOT_LENGTH + k]);
                 } else {
-                    total_sum -= small_pad[j * SLOT_LENGTH + k];
+                    total_sum = total_sum.wrapping_sub(small_pad[j * SLOT_LENGTH + k]);
                 }
             }
 
@@ -166,9 +166,9 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
                 let s1 = (slots[index] >> 31) as i32;
                 let pad_value = small_pad[j * SLOT_LENGTH + index];
                 if s1 == 0 {
-                    local_sum -= pad_value;
+                    local_sum = local_sum.wrapping_sub(pad_value);
                 } else {
-                    local_sum += pad_value;
+                    local_sum = local_sum.wrapping_add(pad_value);
                 }
 
                 // Apply the sum to the slot
