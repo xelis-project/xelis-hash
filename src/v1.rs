@@ -172,11 +172,11 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
                 }
 
                 // Apply the sum to the slot
-                slots[index] += local_sum;
+                slots[index] = slots[index].wrapping_add(local_sum);
 
                 // Update the total sum
                 let s2 = (slots[index] >> 31) as i32;
-                total_sum -= 2 * small_pad[j * SLOT_LENGTH + index] * (-s1 + s2) as u32;
+                total_sum = total_sum.wrapping_sub(2u32.wrapping_mul(small_pad[(j * SLOT_LENGTH).wrapping_add(index)].wrapping_mul((-s1).wrapping_add(s2) as u32)));
             }
         }
     }
