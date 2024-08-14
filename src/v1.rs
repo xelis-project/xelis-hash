@@ -19,13 +19,16 @@ pub const STAGE_1_MAX: usize = MEMORY_SIZE / KECCAK_WORDS;
 // It has a fixed size of `MEMORY_SIZE` u64s
 // It can be easily reused for multiple hashing operations safely
 #[derive(Debug, Clone)]
-pub struct ScratchPad([u64; MEMORY_SIZE]);
+pub struct ScratchPad(Box<[u64; MEMORY_SIZE]>);
 
 impl ScratchPad {
+    // Retrieve the scratchpad size
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    // Get the inner scratch pad as a mutable u64 slice
     pub fn as_mut_slice(&mut self) -> &mut [u64; MEMORY_SIZE] {
         &mut self.0
     }
@@ -33,7 +36,7 @@ impl ScratchPad {
 
 impl Default for ScratchPad {
     fn default() -> Self {
-        Self([0; MEMORY_SIZE])
+        Self(vec![0; MEMORY_SIZE].into_boxed_slice().try_into().unwrap())
     }
 }
 

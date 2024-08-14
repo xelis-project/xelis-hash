@@ -31,22 +31,25 @@ const KEY: [u8; 16] = *b"xelishash-pow-v2";
 // It has a fixed size of `MEMORY_SIZE` u64s
 // It can be easily reused for multiple hashing operations safely
 #[derive(Debug, Clone)]
-pub struct ScratchPad([u64; MEMORY_SIZE]);
+pub struct ScratchPad(Box<[u64; MEMORY_SIZE]>);
 
 impl ScratchPad {
     // Retrieve the scratchpad size
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     // Get the inner scratch pad as a mutable u64 slice
+    #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [u64; MEMORY_SIZE] {
         &mut self.0
     }
 
     // Retrieve the scratch pad as a mutable bytes slice
+    #[inline(always)]
     pub fn as_mut_bytes(&mut self) -> Result<&mut [u8; MEMORY_SIZE * 8], Error> {
-        bytemuck::try_cast_slice_mut(&mut self.0)
+        bytemuck::try_cast_slice_mut(self.as_mut_slice())
             .map_err(|e| Error::CastError(e))?
             .try_into()
             .map_err(|_| Error::FormatError)
@@ -55,7 +58,7 @@ impl ScratchPad {
 
 impl Default for ScratchPad {
     fn default() -> Self {
-        Self([0; MEMORY_SIZE])
+        Self(vec![0; MEMORY_SIZE].into_boxed_slice().try_into().unwrap())
     }
 }
 
