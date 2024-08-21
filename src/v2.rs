@@ -291,28 +291,10 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad, #[cfg(feature = "t
 #[cfg(test)]
 mod tests {
     use rand::{rngs::OsRng, RngCore};
-    use std::{time::Instant, hint};
+    use std::time::Instant;
     use super::*;
 
     const ITERATIONS: usize = 10000;
-
-    #[test]
-    fn benchmark_cpu_hash() {
-        let mut input = [0u8; 112];
-        let mut scratch_pad = ScratchPad::default();
-
-        let start = Instant::now();
-        for i in 0..ITERATIONS {
-            input[0] = i as u8;
-            input[1] = (i >> 8) as u8;
-            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE))).unwrap();
-        }
-
-        let elapsed = start.elapsed();
-        println!("Time took: {:?}", elapsed);
-        println!("H/s: {:.2}", (ITERATIONS as f64 * 1000.) / (elapsed.as_millis() as f64));
-        println!("ms per hash: {:.3}", (elapsed.as_millis() as f64) / ITERATIONS as f64);
-    }
 
     #[test]
     fn test_reused_scratchpad() {

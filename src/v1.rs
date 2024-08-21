@@ -264,31 +264,11 @@ pub fn xelis_hash(input: &mut [u8; BYTES_ARRAY_INPUT], scratch_pad: &mut Scratch
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{time::Instant, hint};
 
     fn test_input(input: &mut [u8; BYTES_ARRAY_INPUT], expected_hash: Hash) {
         let mut scratch_pad = ScratchPad::default();
         let hash = xelis_hash(input, &mut scratch_pad).unwrap();
         assert_eq!(hash, expected_hash);
-    }
-
-    #[test]
-    fn benchmark_cpu_hash() {
-        const ITERATIONS: u32 = 1000;
-        let mut input = [0u8; 200];
-        let mut scratch_pad = ScratchPad::default();
-
-        let start = Instant::now();
-        for i in 0..ITERATIONS {
-            input[0] = i as u8;
-            input[1] = (i >> 8) as u8;
-            let _ = hint::black_box(xelis_hash(&mut input, &mut scratch_pad)).unwrap();
-        }
-
-        let elapsed = start.elapsed();
-        println!("Time took: {:?}", elapsed);
-        println!("H/s: {:.2}", (ITERATIONS as f64 * 1000.) / (elapsed.as_millis() as f64));
-        println!("ms per hash: {:.3}", (elapsed.as_millis() as f64) / ITERATIONS as f64);
     }
 
     #[test]
