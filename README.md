@@ -14,7 +14,7 @@ First nonce is based on the first 12 bytes of the input's blake3 hash result.
 The input is splitted into several 32 bytes chunks padded with zeroes if size is smaller.
 It cannot be parallelized due to the nonce based on the previous iteration.
 
-Stage 2 has been removed has the whole work is now done in stage 3.
+Stage 2 has been removed because the whole work is now done in stage 3.
 
 Stage 3 is expected to do a lot of random access in memory while being forced to stay sequential.
 There is 4 reads and 2 writes per iteration, making it memory bound.
