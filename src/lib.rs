@@ -7,8 +7,7 @@ pub mod v2;
 #[cfg(feature = "v3")]
 pub mod v3;
 
-#[cfg(any(feature = "v2", feature = "v3"))]
-mod scratchpad;
+pub mod scratchpad;
 
 #[cfg(feature = "tracker")]
 pub mod tracker;

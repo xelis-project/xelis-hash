@@ -1,7 +1,7 @@
 use aes::cipher::generic_array::GenericArray;
 use tiny_keccak::keccakp;
 
-use crate::{Hash, HASH_SIZE, Error};
+use crate::{Hash, HASH_SIZE, Error, scratchpad::ScratchPad as ScratchPadInternal};
 
 // These are tweakable parameters
 pub const MEMORY_SIZE: usize = 32768;
@@ -18,27 +18,7 @@ pub const STAGE_1_MAX: usize = MEMORY_SIZE / KECCAK_WORDS;
 // Scratchpad used to store intermediate values
 // It has a fixed size of `MEMORY_SIZE` u64s
 // It can be easily reused for multiple hashing operations safely
-#[derive(Debug, Clone)]
-pub struct ScratchPad(Box<[u64; MEMORY_SIZE]>);
-
-impl ScratchPad {
-    // Retrieve the scratchpad size
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    // Get the inner scratch pad as a mutable u64 slice
-    pub fn as_mut_slice(&mut self) -> &mut [u64; MEMORY_SIZE] {
-        &mut self.0
-    }
-}
-
-impl Default for ScratchPad {
-    fn default() -> Self {
-        Self(vec![0; MEMORY_SIZE].into_boxed_slice().try_into().unwrap())
-    }
-}
+pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
 // Align the input to 8 bytes
 const ALIGNMENT: usize = 8;
