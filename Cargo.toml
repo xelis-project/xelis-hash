@@ -23,10 +23,11 @@ rand = "0.8.5"
 criterion = "0.5.1"
 
 [features]
-default = ["v1", "v2"]
+default = ["v1", "v2", "v3"]
 v1 = ["dep:tiny-keccak"]
 v2 = ["dep:blake3", "dep:chacha20"]
-# Only available in v2
+v3 = ["v2"]
+# Only available in v2/v3
 tracker = []
 
 [[bench]]
@@ -35,4 +36,8 @@ harness = false
 
 [[bench]]
 name = "v2"
+harness = false
+
+[[bench]]
+name = "v3"
 harness = false

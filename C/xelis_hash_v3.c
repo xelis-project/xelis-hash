@@ -10,16 +10,12 @@
 #include <wmmintrin.h>
 #include "BLAKE3/c/blake3.h"
 #include "ChaCha20-SIMD/chacha20.h"
+#include <math.h>
 
 #define INPUT_LEN (112)
-#define MEMSIZE (429 * 128)
-#define ITERS (3)
+#define MEMSIZE (531 * 128)
+#define ITERS (2)
 #define HASH_SIZE (32)
-#define CHUNK_SIZE (32)
-#define NONCE_SIZE (12)
-#define OUTPUT_SIZE (MEMSIZE * 8)
-#define CHUNKS (4)
-#define INPUT_LEN (112)
 
 static inline void blake3(const uint8_t *input, int len, uint8_t *output)
 {
@@ -29,6 +25,11 @@ static inline void blake3(const uint8_t *input, int len, uint8_t *output)
 	blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
 }
 
+#define CHUNK_SIZE (32)
+#define NONCE_SIZE (12)
+#define OUTPUT_SIZE (MEMSIZE * 8)
+#define CHUNKS (4)
+#define INPUT_LEN (112)
 
 void stage1(const uint8_t *input, size_t input_len, uint8_t scratch_pad[OUTPUT_SIZE])
 {
@@ -63,7 +64,7 @@ void stage1(const uint8_t *input, size_t input_len, uint8_t scratch_pad[OUTPUT_S
 	chacha_encrypt(input_hash, t - NONCE_SIZE, NULL, t, OUTPUT_SIZE / CHUNKS, 8);
 }
 
-#define KEY "xelishash-pow-v2"
+#define KEY "xelishash-pow-v3"
 #define BUFSIZE (MEMSIZE / 2)
 
 // https://danlark.org/2020/06/14/128-bit-division
@@ -109,51 +110,39 @@ static inline __uint128_t combine_uint64(uint64_t high, uint64_t low)
 	return ((__uint128_t)high << 64) | low;
 }
 
-/*
 uint64_t isqrt(uint64_t n) {
-	if (n < 2)
-		return n;
+    if (n < 2)
+        return n;
 
-	uint64_t x = n;
-	uint64_t y = (x + 1) >> 1;
+    // Compute the floating-point square root
+    uint64_t approx = (uint64_t)sqrt((double)n);
 
-	while (y < x) {
-		x = y;
-		y = (x + n / x) >> 1;
-	}
-
-	return x;
+    // Verify and adjust if necessary
+    if (approx * approx > n) {
+        return approx - 1;
+    } else if ((approx + 1) * (approx + 1) <= n) {
+        return approx + 1;
+    } else {
+        return approx;
+    }
 }
-*/
 
-uint64_t isqrt(uint64_t n)
-{
-	if (n < 2)
-		return n;
-
-	uint64_t x = n;
-	uint64_t result = 0;
-	uint64_t bit = (uint64_t)1 << 62; // The second-to-top bit is set
-
-	// "bit" starts at the highest power of four <= the argument.
-	while (bit > x)
-		bit >>= 2;
-
-	while (bit != 0)
-	{
-		if (x >= result + bit)
-		{
-			x -= result + bit;
-			result = (result >> 1) + bit;
-		}
-		else
-		{
-			result >>= 1;
-		}
-		bit >>= 2;
-	}
-
-	return result;
+uint64_t modular_power(uint64_t base, uint64_t exp, uint64_t mod) {
+    uint64_t result = 1;
+    base %= mod;  // Ensure base is within the range of mod
+    
+    while (exp > 0) {
+        // If exp is odd, multiply base with result
+        if (exp & 1) {
+            result = (uint64_t)(((__uint128_t)result * base) % mod);
+        }
+	        
+        // Square the base and reduce by mod
+        base = (uint64_t)(((__uint128_t)base * base) % mod);
+        exp /= 2;  // Halve the exponent
+    }
+    
+    return result;
 }
 
 void static inline uint64_to_le_bytes(uint64_t value, uint8_t *bytes)
@@ -219,13 +208,14 @@ void stage3(uint64_t *scratch)
 			switch (ROTL(result, (uint32_t)c) & 0xf)
 			{
 			case 0:
-				v = ROTL(c, i * j) ^ b;
+				t1 = combine_uint64((a + i), isqrt(b + j));
+				v = t1 % isqrt(c | 1);
 				break;
 			case 1:
-				v = ROTR(c, i * j) ^ a;
+				v = ROTL((c + i) % isqrt(b | 2), i + j) * isqrt(a + j);
 				break;
 			case 2:
-				v = a ^ b ^ c;
+				v = (isqrt(a + i) * isqrt(c + j)) ^ (b + i + j);
 				break;
 			case 3:
 				v = ((a + b) * c);
@@ -287,23 +277,25 @@ void stage3(uint64_t *scratch)
 			}
 			break;
 			}
-			result = ROTL(result ^ v, 1);
+			result = ROTL(result ^ v, r);
 
-			uint64_t t = mem_buffer_a[BUFSIZE - j - 1] ^ result;
-			mem_buffer_a[BUFSIZE - j - 1] = t;
-			mem_buffer_b[j] ^= ROTR(t, result);
+			uint64_t t = mem_buffer_a[v % BUFSIZE] ^ result;
+
+			mem_buffer_a[(result>>21) % BUFSIZE] = t;
+			mem_buffer_b[(result>>42) % BUFSIZE] ^= ROTR(t, i + j);
 		}
-		addr_a = result;
-		addr_b = isqrt(result);
+
+		addr_a = modular_power(addr_a, addr_b, result);
+		addr_b = isqrt(result) * (r + 1) * isqrt(addr_a);
 	}
 }
 
-int xelis_hash_v2_init()
+int xelis_hash_v3_init()
 {
 	// return sodium_init();
 }
 
-void xelis_hash_v2(uint8_t in[INPUT_LEN], uint8_t hash[HASH_SIZE], uint64_t scratch[MEMSIZE])
+void xelis_hash_v3(uint8_t in[INPUT_LEN], uint8_t hash[HASH_SIZE], uint64_t scratch[MEMSIZE])
 {
 	uint8_t *scratch_uint8 = (uint8_t *)scratch;
 
@@ -330,7 +322,7 @@ void timing_test(int N)
 	uint64_t *scratch = (uint64_t *)calloc(MEMSIZE, sizeof(uint64_t));
 	uint8_t *scratch_uint8 = (uint8_t *)scratch;
 
-	xelis_hash_v2_init();
+	xelis_hash_v3_init();
 
 	printf("Timing:\n");
 	clock_gettime(CLOCK_MONOTONIC, &start);
@@ -360,7 +352,7 @@ void timing_test(int N)
 		126, 64, 67, 238, 52, 200, 35, 161, 19,
 		144, 211, 214, 225, 95, 190, 146, 27};
 
-	xelis_hash_v2(input, hash, scratch);
+	xelis_hash_v3(input, hash, scratch);
 	if (memcmp(gold, hash, HASH_SIZE))
 		printf("Failed!\n");
 	else
@@ -397,7 +389,7 @@ void *hash_thread(void *arg)
 	//	set_thread_affinity(data->thread_id);
 
 	for (int i = 0; i < data->iterations; ++i)
-		xelis_hash_v2(data->input, data->hash, data->scratch);
+		xelis_hash_v3(data->input, data->hash, data->scratch);
 
 	pthread_exit(NULL);
 }
@@ -407,7 +399,7 @@ void hash_test(int t, int i)
 	pthread_t *threads;
 	thread_data_t *thread_data;
 
-	xelis_hash_v2_init();
+	xelis_hash_v3_init();
 
 	printf("\n%-10s %-15s %-10s\n", "Threads", "Hashes", "Hash/s");
 	for (int tc = 1; tc <= t; ++tc)
