@@ -37,6 +37,12 @@ const KEY: [u8; 16] = *b"xelishash-pow-v2";
 
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
+// Combine two u64 into a u128
+#[inline(always)]
+pub(crate) fn combine_u64(high: u64, low: u64) -> u128 {
+    ((high as u128) << 64) | low as u128
+}
+
 // Stage 1 of the hashing algorithm
 // This stage is responsible for generating the scratch pad
 // The scratch pad is generated using ChaCha8 with a custom nonce
@@ -175,33 +181,33 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 8 => c.wrapping_mul(a).wrapping_add(b),
                 9 => a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
-                    let t1 = ((a as u128) << 64) | (b as u128);
+                    let t1 = combine_u64(a, b);
                     let t2 = (c | 1) as u128;
                     t1.wrapping_rem(t2) as u64
                 },
                 11 => {
-                    let t1 = (b as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | (a | 2) as u128;
+                    let t1 = combine_u64(b, c);
+                    let t2 = combine_u64(result.rotate_left(r as u32), a | 2);
                     t1.wrapping_rem(t2) as u64
                 },
                 12 => {
-                    let t1 = ((c as u128)<<64) | (a as u128);
+                    let t1 = combine_u64(c, a);
                     let t2 = (b | 4) as u128;
                     t1.wrapping_div(t2) as u64
                 },
                 13 => {
-                    let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
-                    let t2 = (a as u128) << 64 | (c | 8) as u128;
+                    let t1 = combine_u64(result.rotate_left(r as u32), b);
+                    let t2 = combine_u64(a, c | 8);
                     if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
-                    let t1 = ((b as u128) << 64) | a as u128;
+                    let t1 = combine_u64(b, a);
                     let t2 = c as u128;
                     (t1.wrapping_mul(t2) >> 64) as u64
                 },
                 15 => {
-                    let t1 = (a as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_right(r as u32) as u128) << 64 | b as u128;
+                    let t1 = combine_u64(a, c);
+                    let t2 = combine_u64(result.rotate_right(r as u32), b);
                     (t1.wrapping_mul(t2) >> 64) as u64
                 },
                 _ => unreachable!(),

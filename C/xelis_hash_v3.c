@@ -193,7 +193,7 @@ void stage3(uint64_t *scratch)
 		aes_single_round(block, KEY);
 
 		uint64_t hash1 = le_bytes_to_uint64(block);
-		uint64_t hash2 = mem_a ^ mem_b;
+		uint64_t hash2 = le_bytes_to_uint64(block + 8);
 		uint64_t result = ~(hash1 ^ hash2);
 
 		for (uint32_t j = 0; j < BUFSIZE; j++)

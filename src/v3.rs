@@ -1,6 +1,9 @@
 use aes::cipher::generic_array::GenericArray;
 use crate::{v2, Error, Hash, scratchpad::ScratchPad as ScratchPadInternal};
 
+#[cfg(feature = "tracker")]
+use crate::tracker::*;
+
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
 // In bytes, this is equal to ~ 440KB
@@ -81,11 +84,14 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
 
         aes::hazmat::cipher_round(&mut block, &key);
 
-        let hash1 = u64::from_le_bytes(block[0..8]
+        let hash1 = u64::from_le_bytes(block[..8]
             .try_into()
             .map_err(|_| Error::FormatError)?);
 
-        let hash2 = mem_a ^ mem_b;
+        let hash2 = u64::from_le_bytes(block[8..]
+            .try_into()
+            .map_err(|_| Error::FormatError)?);
+
         let mut result = !(hash1 ^ hash2);
 
         for j in 0..BUFFER_SIZE {
@@ -124,10 +130,17 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 tracker.add_branch(branch_idx);
             }
 
-            let v = result ^ match branch_idx {
-                0 => ((a + i as u64) | isqrt(b.wrapping_add(j as u64))) % isqrt(c | 1),
-                1 => (c.wrapping_add(i as u64) % isqrt(b | 2)).rotate_left(i.wrapping_add(j) as u32) * isqrt(a.wrapping_add(j as u64)),
-                2 => (isqrt(a.wrapping_add(i as u64)) * isqrt(c.wrapping_add(j as u64))) ^ b.wrapping_add(i as u64).wrapping_add(j as u64),
+            let v = match branch_idx {
+                0 => {
+                    let t1 = v2::combine_u64(a.wrapping_add(i as u64), isqrt(b.wrapping_add(j as u64)));
+                   t1.wrapping_rem(isqrt(c | 1) as u128) as u64
+                },
+                // ROTL((c + i) % isqrt(b | 2), i + j) * isqrt(a + j)
+                1 => c.wrapping_add(i as u64).wrapping_rem(isqrt(b | 2))
+                    .rotate_left(i.wrapping_add(j) as u32)
+                    .wrapping_mul(isqrt(a.wrapping_add(j as u64))),
+                // (isqrt(a + i) * isqrt(c + j)) ^ (b + i + j)
+                2 => (isqrt(a.wrapping_add(i as u64)).wrapping_mul(isqrt(c.wrapping_add(j as u64)))) ^ b.wrapping_add(i as u64).wrapping_add(j as u64),
                 3 => a.wrapping_add(b).wrapping_mul(c),
                 4 => b.wrapping_sub(c).wrapping_mul(a),
                 5 => c.wrapping_sub(a).wrapping_add(b),
@@ -136,43 +149,39 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 8 => c.wrapping_mul(a).wrapping_add(b),
                 9 => a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
-                    let t1 = ((a as u128) << 64) | (b as u128);
+                    let t1 = v2::combine_u64(a, b);
                     let t2 = (c | 1) as u128;
                     t1.wrapping_rem(t2) as u64
                 },
                 11 => {
-                    let t1 = (b as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_left(r as u32) as u128) << 64 | (a | 2) as u128;
+                    let t1 = v2::combine_u64(b, c);
+                    let t2 = v2::combine_u64(result.rotate_left(r as u32), a | 2);
                     t1.wrapping_rem(t2) as u64
                 },
                 12 => {
-                    let t1 = ((c as u128)<<64) | (a as u128);
+                    let t1 = v2::combine_u64(c, a);
                     let t2 = (b | 4) as u128;
                     t1.wrapping_div(t2) as u64
                 },
                 13 => {
-                    let t1 = (result.rotate_left(r as u32) as u128) << 64 | b as u128;
-                    let t2 = (a as u128) << 64 | (c | 8) as u128;
-                    if t1 > t2 {
-                        t1.wrapping_div(t2) as u64
-                    } else {
-                        a ^ b
-                    }
+                    let t1 = v2::combine_u64(result.rotate_left(r as u32), b);
+                    let t2 = v2::combine_u64(a, c | 8);
+                    if t1 > t2 {t1.wrapping_div(t2) as u64} else {a^b}
                 },
                 14 => {
-                    let t1 = ((b as u128) << 64) | a as u128;
+                    let t1 = v2::combine_u64(b, a);
                     let t2 = c as u128;
                     (t1.wrapping_mul(t2) >> 64) as u64
                 },
                 15 => {
-                    let t1 = (a as u128) << 64 | c as u128;
-                    let t2 = (result.rotate_right(r as u32) as u128) << 64 | b as u128;
+                    let t1 = v2::combine_u64(a, c);
+                    let t2 = v2::combine_u64(result.rotate_right(r as u32), b);
                     (t1.wrapping_mul(t2) >> 64) as u64
                 },
                 _ => unreachable!(),
             };
 
-            result = v.rotate_left(r as u32);
+            result = (result ^ v).rotate_left(r as u32);
 
             let index_t = (v % BUFFER_SIZE as u64) as usize;
             let index_a = ((result >> 21) % BUFFER_SIZE as u64) as usize;
@@ -208,4 +217,96 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad, #[cfg(feature = "t
 
     // final stage 4
     v2::stage_4(scratch_pad)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use rand::{rngs::OsRng, RngCore};
+    use super::*;
+
+    #[test]
+    fn test_reused_scratchpad() {
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; 112];
+        OsRng.fill_bytes(&mut input);
+
+        // Do a first hash
+        let expected_hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
+
+        // Do a second hash with dirty scratch pad but same input
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
+        assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    fn test_zero_hash() {
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; 112];
+
+        let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
+        let expected_hash = [
+            137, 196, 251, 255, 71, 36, 219, 91, 49, 5, 0, 22,
+            105, 79, 168, 195, 137, 44, 90, 249, 174, 154,
+            164, 48, 68, 211, 29, 59, 191, 98, 215, 103
+        ];
+
+        assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    fn test_verify_output() {
+        let input = [
+            172, 236, 108, 212, 181, 31, 109, 45, 44, 242, 54, 225, 143, 133,
+            89, 44, 179, 108, 39, 191, 32, 116, 229, 33, 63, 130, 33, 120, 185, 89,
+            146, 141, 10, 79, 183, 107, 238, 122, 92, 222, 25, 134, 90, 107, 116,
+            110, 236, 53, 255, 5, 214, 126, 24, 216, 97, 199, 148, 239, 253, 102,
+            199, 184, 232, 253, 158, 145, 86, 187, 112, 81, 78, 70, 80, 110, 33,
+            37, 159, 233, 198, 1, 178, 108, 210, 100, 109, 155, 106, 124, 124, 83,
+            89, 50, 197, 115, 231, 32, 74, 2, 92, 47, 25, 220, 135, 249, 122,
+            172, 220, 137, 143, 234, 68, 188
+        ];
+
+        let mut scratch_pad = ScratchPad::default();
+        let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
+
+        let expected_hash = [
+            231, 66, 76, 198, 129, 72, 36, 79, 138, 165, 1,
+            161, 13, 210, 152, 54, 210, 40, 154, 127, 84,
+            38, 15, 64, 83, 80, 74, 144, 3, 232, 59, 9
+        ];
+
+        assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    #[cfg(feature = "tracker")]
+    fn test_distribution() {
+        const ITERATIONS: usize = 10000;
+
+        let mut scratch_pad = ScratchPad::default();
+        let mut input = [0u8; 112];
+        let mut distribution = OpsTracker::new(MEMORY_SIZE);
+        for _ in 0..ITERATIONS {
+            OsRng.fill_bytes(&mut input);
+            let _ = xelis_hash(&input, &mut scratch_pad, &mut distribution).unwrap();
+        }
+
+        println!("{:?}", distribution.get_mem_accesses());
+        println!("{:?}", distribution.get_branches());
+        let mut min = usize::MAX;
+        let mut max = 0;
+
+        for accesses in distribution.get_mem_accesses() {
+            if *accesses < min {
+                min = *accesses;
+            }
+
+            if *accesses > max {
+                max = *accesses;
+            }
+        }
+
+        println!("Min: {}, Max: {}", min, max);
+    }
 }
