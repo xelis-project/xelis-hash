@@ -40,7 +40,7 @@ pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 // Combine two u64 into a u128
 #[inline(always)]
 pub(crate) fn combine_u64(high: u64, low: u64) -> u128 {
-    ((high as u128) << 64) | low as u128
+    (high as u128) << 64 | low as u128
 }
 
 // Stage 1 of the hashing algorithm

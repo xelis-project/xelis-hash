@@ -190,7 +190,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             let t = mem_buffer_a[index_t] ^ result;
 
             mem_buffer_a[index_a] = t;
-			mem_buffer_b[index_b] ^= t.rotate_left(i.wrapping_add(j) as u32);
+			mem_buffer_b[index_b] ^= t.rotate_right(i.wrapping_add(j) as u32);
 
             #[cfg(feature = "tracker")]
             {
@@ -246,9 +246,9 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            137, 196, 251, 255, 71, 36, 219, 91, 49, 5, 0, 22,
-            105, 79, 168, 195, 137, 44, 90, 249, 174, 154,
-            164, 48, 68, 211, 29, 59, 191, 98, 215, 103
+            86, 140, 67, 54, 59, 87, 219, 70, 98, 24, 211,
+            247, 45, 5, 101, 109, 153, 175, 186, 46, 22, 224,
+            116, 147, 209, 115, 88, 155, 206, 53, 71, 103
         ];
 
         assert_eq!(hash, expected_hash);
@@ -271,9 +271,9 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            231, 66, 76, 198, 129, 72, 36, 79, 138, 165, 1,
-            161, 13, 210, 152, 54, 210, 40, 154, 127, 84,
-            38, 15, 64, 83, 80, 74, 144, 3, 232, 59, 9
+            230, 22, 92, 111, 252, 26, 128, 186, 26, 52,
+            194, 227, 99, 67, 70, 94, 29, 29, 126, 93, 172,
+            229, 65, 11, 139, 182, 157, 126, 64, 198, 26, 68
         ];
 
         assert_eq!(hash, expected_hash);
