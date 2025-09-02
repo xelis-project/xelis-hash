@@ -6,7 +6,7 @@ use crate::tracker::*;
 
 // These are tweakable parameters
 // Memory size is the size of the scratch pad in u64s
-// In bytes, this is equal to ~ 440KB
+// In bytes, this is equal to ~ 544 kB
 const MEMORY_SIZE: usize = 531 * 128;
 const MEMORY_SIZE_BYTES: usize = MEMORY_SIZE * 8;
 const SCRATCHPAD_ITERS: usize = 2;
