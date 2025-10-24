@@ -123,6 +123,17 @@ static inline uint64_t map_index(uint64_t seed)
 	return (uint64_t)(((__uint128_t)seed * BUFSIZE) >> 64);
 }
 
+static inline int pick_half(uint64_t seed)
+{
+    // Murmur3 finalizer to get a uniform selector bit
+	seed ^= seed >> 33;
+	seed *= 0xff51afd7ed558ccdULL;
+	seed ^= seed >> 33;
+	seed *= 0xc4ceb9fe1a85ec53ULL;
+	seed ^= seed >> 33;
+	return seed >> 63 == 0;
+}
+
 uint64_t isqrt(uint64_t n) {
     if (n < 2)
         return n;
@@ -293,9 +304,14 @@ void stage3(uint64_t *scratch)
 			uint64_t idx_seed = v ^ result;
 			result = ROTL(result ^ v, r);
 
-			uint64_t t = mem_buffer_a[map_index(idx_seed)] ^ result;
-			mem_buffer_a[map_index(result >> 21)] = t;
-			mem_buffer_b[map_index(result >> 42)] ^= ROTR(t, i + j);
+			uint64_t idx_t = map_index(idx_seed);
+			uint64_t idx_a = map_index(result ^ 0x9e3779b97f4a7c15);
+			uint64_t idx_b = map_index(~result ^ 0xd2b74407b1ce6e93);
+
+			uint64_t use_buffer_b = pick_half(v);
+			uint64_t t = (use_buffer_b ? mem_buffer_b[idx_t] : mem_buffer_a[idx_t]) ^ result;
+			mem_buffer_a[idx_a] = t;
+			mem_buffer_b[idx_b] ^= ROTR(t, i + j);
 		}
 
 		addr_a = modular_power(addr_a, addr_b, result);
@@ -360,11 +376,11 @@ void timing_test(int N)
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		80, 50, 106, 149, 58, 90, 38,
-		72, 238, 128, 249, 146, 131, 208,
-		80, 75, 200, 230, 225, 31,
-		138, 217, 49, 16, 110, 121, 232,
-		191, 246, 159, 100, 131
+		220, 215, 125, 182, 169, 212,
+		183, 219, 173, 60, 127, 232,
+		255, 242, 63, 97, 147, 36, 74,
+		168, 101, 139, 124, 23, 7, 177,
+		206, 180, 202, 111, 251, 5
 	};
 
 	xelis_hash_v3(input, hash, scratch);
