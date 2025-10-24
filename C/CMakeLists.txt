@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(PROJECT_NAME xelishash_v2)
+set(PROJECT_NAME xelishash_v3)
 
 project(${PROJECT_NAME} C)
 
@@ -22,14 +22,14 @@ set(SOURCES
     ChaCha20-SIMD/chacha20_avx2.c
     ChaCha20-SIMD/chacha20_dispatch.c
     ChaCha20-SIMD/cpu_features.c
-    xelis_hash_v2.c
+    xelis_hash_v3.c
 )
 
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 
-target_link_libraries(${PROJECT_NAME} blake3 pthread)
+target_link_libraries(${PROJECT_NAME} blake3 pthread m)
 
 
 
