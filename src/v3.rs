@@ -32,6 +32,17 @@ fn map_index(mut seed: u64) -> usize {
     ((seed as u128) * (BUFFER_SIZE as u128) >> 64) as usize
 }
 
+fn pick_half(mut seed: u64) -> bool {
+    // Murmur3 finalizer to get a uniform selector bit
+	seed ^= seed >> 33;
+	seed = seed.wrapping_mul(0xff51afd7ed558ccd);
+	seed ^= seed >> 33;
+	seed = seed.wrapping_mul(0xc4ceb9fe1a85ec53);
+	seed ^= seed >> 33;
+
+    return (seed >> 63) == 0;
+}
+
 fn isqrt(n: u64) -> u64 {
     if n < 2 {
         return n;
@@ -226,16 +237,22 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             result = (result ^ v).rotate_left(r as u32);
 
             let index_t = map_index(idx_seed);
-            let index_a = map_index(result >> 21);
-            let index_b = map_index(result >> 42);
+            let index_a = map_index(result ^ 0x9e3779b97f4a7c15);
+            let index_b = map_index(!result ^ 0xd2b74407b1ce6e93);
 
-            let t = mem_buffer_a[index_t] ^ result;
+            let use_buffer_b = pick_half(v);
+            let t = if use_buffer_b { mem_buffer_b[index_t] } else { mem_buffer_a[index_t] } ^ result;
             mem_buffer_a[index_a] = t;
 			mem_buffer_b[index_b] ^= t.rotate_right(i.wrapping_add(j) as u32);
 
             #[cfg(feature = "tracker")]
             {
-                tracker.add_mem_op(index_t, MemOp::Read);
+                if use_buffer_b {
+                    tracker.add_mem_op(BUFFER_SIZE + index_t, MemOp::Read);
+                } else {
+                    tracker.add_mem_op(index_t, MemOp::Read);
+                }
+
                 // mem_buffer_a[index_a] and mem_buffer_b[index_b] are written
                 tracker.add_mem_op(index_a, MemOp::Write);
                 tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Write);
