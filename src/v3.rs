@@ -43,11 +43,11 @@ fn modular_power(mut base: u64, mut exp: u64, mod_: u64) -> u64 {
     while exp > 0 {
         // If exp is odd, multiply base with result
         if exp & 1 == 1 {
-            result = (result * base) % mod_;
+            result = ((result as u128 * base as u128) % mod_ as u128) as u64;
         }
 
         // Square the base and reduce by mod
-        base = (base * base) % mod_;
+        base = ((base as u128 * base as u128) % mod_ as u128) as u64;
         exp /= 2;
     }
 
@@ -64,6 +64,13 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
 
     let mut addr_a = mem_buffer_b[BUFFER_SIZE-1];
     let mut addr_b = mem_buffer_a[BUFFER_SIZE-1] >> 32;
+
+    #[cfg(feature = "tracker")]
+    {
+        tracker.add_mem_op(BUFFER_SIZE-1, MemOp::Read);
+        tracker.add_mem_op(MEMORY_SIZE-1, MemOp::Read);
+    }
+
     let mut r: usize = 0;
 
     for i in 0..SCRATCHPAD_ITERS {
@@ -131,6 +138,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             }
 
             let v = match branch_idx {
+                // combine_u64(a + i, isqrt(b + j)) % isqrt(c | 1)
                 0 => {
                     let t1 = v2::combine_u64(a.wrapping_add(i as u64), isqrt(b.wrapping_add(j as u64)));
                    t1.wrapping_rem(isqrt(c | 1) as u128) as u64
@@ -141,12 +149,19 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                     .wrapping_mul(isqrt(a.wrapping_add(j as u64))),
                 // (isqrt(a + i) * isqrt(c + j)) ^ (b + i + j)
                 2 => (isqrt(a.wrapping_add(i as u64)).wrapping_mul(isqrt(c.wrapping_add(j as u64)))) ^ b.wrapping_add(i as u64).wrapping_add(j as u64),
+                // a + b * c
                 3 => a.wrapping_add(b).wrapping_mul(c),
+                // b - c * a
                 4 => b.wrapping_sub(c).wrapping_mul(a),
+                // c - a + b
                 5 => c.wrapping_sub(a).wrapping_add(b),
+                // a - b + c
                 6 => a.wrapping_sub(b).wrapping_add(c),
+                // b * c + a
                 7 => b.wrapping_mul(c).wrapping_add(a),
+                // c * a + b
                 8 => c.wrapping_mul(a).wrapping_add(b),
+                // a * b * c
                 9 => a.wrapping_mul(b).wrapping_mul(c),
                 10 => {
                     let t1 = v2::combine_u64(a, b);
@@ -156,7 +171,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 11 => {
                     let t1 = v2::combine_u64(b, c);
                     let t2 = v2::combine_u64(result.rotate_left(r as u32), a | 2);
-                    t1.wrapping_rem(t2) as u64
+                    if t2 > t1 { c } else { t1.wrapping_rem(t2) as u64 }
                 },
                 12 => {
                     let t1 = v2::combine_u64(c, a);
@@ -183,18 +198,18 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
 
             result = (result ^ v).rotate_left(r as u32);
 
-            let index_t = (v % BUFFER_SIZE as u64) as usize;
-            let index_a = ((result >> 21) % BUFFER_SIZE as u64) as usize;
-            let index_b = ((result >> 42) % BUFFER_SIZE as u64) as usize;
+            let index_t = (v % buffer_size) as usize;
+            let index_a = ((result >> 21) % buffer_size) as usize;
+            let index_b = ((result >> 42) % buffer_size) as usize;
 
             let t = mem_buffer_a[index_t] ^ result;
-
             mem_buffer_a[index_a] = t;
 			mem_buffer_b[index_b] ^= t.rotate_right(i.wrapping_add(j) as u32);
 
             #[cfg(feature = "tracker")]
             {
                 tracker.add_mem_op(index_t, MemOp::Read);
+                // mem_buffer_a[index_a] and mem_buffer_b[index_b] are written
                 tracker.add_mem_op(index_a, MemOp::Write);
                 tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Write);
             }
@@ -282,7 +297,7 @@ mod tests {
     #[test]
     #[cfg(feature = "tracker")]
     fn test_distribution() {
-        const ITERATIONS: usize = 10000;
+        const ITERATIONS: usize = 1000;
 
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
@@ -292,21 +307,7 @@ mod tests {
             let _ = xelis_hash(&input, &mut scratch_pad, &mut distribution).unwrap();
         }
 
-        println!("{:?}", distribution.get_mem_accesses());
-        println!("{:?}", distribution.get_branches());
-        let mut min = usize::MAX;
-        let mut max = 0;
-
-        for accesses in distribution.get_mem_accesses() {
-            if *accesses < min {
-                min = *accesses;
-            }
-
-            if *accesses > max {
-                max = *accesses;
-            }
-        }
-
-        println!("Min: {}, Max: {}", min, max);
+        distribution.generate_branch_distribution("branch_v3.png").unwrap();
+        distribution.generate_memory_usage_graph("memory_v3.png").unwrap();
     }
 }
