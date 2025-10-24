@@ -43,11 +43,11 @@ fn modular_power(mut base: u64, mut exp: u64, mod_: u64) -> u64 {
     while exp > 0 {
         // If exp is odd, multiply base with result
         if exp & 1 == 1 {
-            result = ((result as u128 * base as u128) % mod_ as u128) as u64;
+            result = (result * base) % mod_;
         }
 
         // Square the base and reduce by mod
-        base = ((base as u128 * base as u128) % mod_ as u128) as u64;
+        base = (base * base) % mod_;
         exp /= 2;
     }
 
@@ -196,7 +196,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             {
                 tracker.add_mem_op(index_t, MemOp::Read);
                 tracker.add_mem_op(index_a, MemOp::Write);
-                tracker.add_mem_op(index_b, MemOp::Write);
+                tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Write);
             }
         }
 

@@ -114,20 +114,27 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
 
     let mut addr_a = mem_buffer_b[BUFFER_SIZE-1];
     let mut addr_b = mem_buffer_a[BUFFER_SIZE-1] >> 32;
+
+    #[cfg(feature = "tracker")]
+    {
+        tracker.add_mem_op(BUFFER_SIZE-1, MemOp::Read);
+        tracker.add_mem_op(MEMORY_SIZE-1, MemOp::Read);
+    }
+
     let mut r: usize = 0;
 
     for i in 0..SCRATCHPAD_ITERS {
         let index_a = (addr_a % buffer_size) as usize;
         let index_b = (addr_b % buffer_size) as usize;
 
+        let mem_a = mem_buffer_a[index_a];
+        let mem_b = mem_buffer_b[index_b];
+
         #[cfg(feature = "tracker")]
         {
             tracker.add_mem_op(index_a, MemOp::Read);
             tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
         }
-
-        let mem_a = mem_buffer_a[index_a];
-        let mem_b = mem_buffer_b[index_b];
 
         block[..8].copy_from_slice(&mem_b.to_le_bytes());
         block[8..].copy_from_slice(&mem_a.to_le_bytes());
@@ -280,7 +287,7 @@ mod tests {
     use std::time::Instant;
     use super::*;
 
-    const ITERATIONS: usize = 10000;
+    const ITERATIONS: usize = 1000;
 
     #[test]
     fn test_reused_scratchpad() {
@@ -373,21 +380,7 @@ mod tests {
             let _ = xelis_hash(&input, &mut scratch_pad, &mut distribution).unwrap();
         }
 
-        println!("{:?}", distribution.get_mem_accesses());
-        println!("{:?}", distribution.get_branches());
-        let mut min = usize::MAX;
-        let mut max = 0;
-
-        for accesses in distribution.get_mem_accesses() {
-            if *accesses < min {
-                min = *accesses;
-            }
-
-            if *accesses > max {
-                max = *accesses;
-            }
-        }
-
-        println!("Min: {}, Max: {}", min, max);
+        distribution.generate_branch_distribution("branch_v2.png").unwrap();
+        distribution.generate_memory_usage_graph("memory_v2.png").unwrap();
     }
 }
