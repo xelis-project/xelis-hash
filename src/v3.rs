@@ -17,6 +17,21 @@ const KEY: [u8; 16] = *b"xelishash-pow-v3";
 
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
+#[inline]
+fn map_index(mut seed: u64) -> usize {
+	/* MurmurHash3 finalizer + multiply-high reduction.
+	* The finalizer avalanches the input seed; the mulhi step maps
+	* uniformly into [0, BUFSIZE) with minimal modulo bias.
+    */
+	seed ^= seed >> 33;
+	seed = seed.wrapping_mul(0xff51afd7ed558ccd);
+	seed ^= seed >> 33;
+	seed = seed.wrapping_mul(0xc4ceb9fe1a85ec53);
+	seed ^= seed >> 33;
+
+    ((seed as u128) * (BUFFER_SIZE as u128) >> 64) as usize
+}
+
 fn isqrt(n: u64) -> u64 {
     if n < 2 {
         return n;
@@ -102,8 +117,8 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
         let mut result = !(hash1 ^ hash2);
 
         for j in 0..BUFFER_SIZE {
-            let index_a = (result % buffer_size) as usize;
-            let index_b = (!result.rotate_right(r as u32) % buffer_size) as usize;
+            let index_a = map_index(result);
+            let index_b = map_index(!result.rotate_right(r as u32));
 
             #[cfg(feature = "tracker")]
             {
@@ -207,11 +222,12 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 _ => unreachable!(),
             };
 
+            let idx_seed = v ^ result;
             result = (result ^ v).rotate_left(r as u32);
 
-            let index_t = (v % buffer_size) as usize;
-            let index_a = ((result >> 21) % buffer_size) as usize;
-            let index_b = ((result >> 42) % buffer_size) as usize;
+            let index_t = map_index(idx_seed);
+            let index_a = map_index(result >> 21);
+            let index_b = map_index(result >> 42);
 
             let t = mem_buffer_a[index_t] ^ result;
             mem_buffer_a[index_a] = t;
@@ -272,11 +288,11 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            189, 75, 163, 223, 132, 192,
-            185, 123, 95, 101, 215, 158,
-            224, 164, 146, 5, 203, 61, 165,
-            33, 181, 136, 105, 88, 69, 232,
-            114, 155, 158, 158, 53, 166
+            80, 50, 106, 149, 58, 90, 38,
+            72, 238, 128, 249, 146, 131, 208,
+            80, 75, 200, 230, 225, 31,
+            138, 217, 49, 16, 110, 121, 232,
+            191, 246, 159, 100, 131
         ];
 
         assert_eq!(hash, expected_hash);

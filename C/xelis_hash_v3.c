@@ -88,7 +88,7 @@ static inline uint64_t udiv(uint64_t high, uint64_t low, uint64_t divisor)
 	}
 	else
 	{
-		uint64_t qhi = Divide128Div64To64(0, high, divisor, &high);
+		(void)Divide128Div64To64(0, high, divisor, &high);
 		return Divide128Div64To64(high, low, divisor, &remainder);
 	}
 }
@@ -108,6 +108,19 @@ static inline uint64_t ROTL(uint64_t x, uint32_t r)
 static inline __uint128_t combine_uint64(uint64_t high, uint64_t low)
 {
 	return ((__uint128_t)high << 64) | low;
+}
+
+static inline uint64_t map_index(uint64_t seed)
+{
+	/* MurmurHash3 finalizer + multiply-high reduction.
+	* The finalizer avalanches the input seed; the mulhi step maps
+	* uniformly into [0, BUFSIZE) with minimal modulo bias. */
+	seed ^= seed >> 33;
+	seed *= 0xff51afd7ed558ccdULL;
+	seed ^= seed >> 33;
+	seed *= 0xc4ceb9fe1a85ec53ULL;
+	seed ^= seed >> 33;
+	return (uint64_t)(((__uint128_t)seed * BUFSIZE) >> 64);
 }
 
 uint64_t isqrt(uint64_t n) {
@@ -198,8 +211,8 @@ void stage3(uint64_t *scratch)
 
 		for (uint32_t j = 0; j < BUFSIZE; j++)
 		{
-			uint64_t a = mem_buffer_a[result % BUFSIZE];
-			uint64_t b = mem_buffer_b[~ROTR(result, r) % BUFSIZE];
+			uint64_t a = mem_buffer_a[map_index(result)];
+			uint64_t b = mem_buffer_b[map_index(~ROTR(result, r))];
 			uint64_t c = (r < BUFSIZE) ? mem_buffer_a[r] : mem_buffer_b[r - BUFSIZE];
 			r = (r < MEMSIZE - 1) ? r + 1 : 0;
 
@@ -277,12 +290,12 @@ void stage3(uint64_t *scratch)
 			}
 			break;
 			}
+			uint64_t idx_seed = v ^ result;
 			result = ROTL(result ^ v, r);
 
-			uint64_t t = mem_buffer_a[v % BUFSIZE] ^ result;
-
-			mem_buffer_a[(result>>21) % BUFSIZE] = t;
-			mem_buffer_b[(result>>42) % BUFSIZE] ^= ROTR(t, i + j);
+			uint64_t t = mem_buffer_a[map_index(idx_seed)] ^ result;
+			mem_buffer_a[map_index(result >> 21)] = t;
+			mem_buffer_b[map_index(result >> 42)] ^= ROTR(t, i + j);
 		}
 
 		addr_a = modular_power(addr_a, addr_b, result);
@@ -347,11 +360,11 @@ void timing_test(int N)
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		189, 75, 163, 223, 132, 192,
-		185, 123, 95, 101, 215, 158,
-		224, 164, 146, 5, 203, 61, 165,
-		33, 181, 136, 105, 88, 69, 232,
-		114, 155, 158, 158, 53, 166
+		80, 50, 106, 149, 58, 90, 38,
+		72, 238, 128, 249, 146, 131, 208,
+		80, 75, 200, 230, 225, 31,
+		138, 217, 49, 16, 110, 121, 232,
+		191, 246, 159, 100, 131
 	};
 
 	xelis_hash_v3(input, hash, scratch);
