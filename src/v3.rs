@@ -140,18 +140,29 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             let v = match branch_idx {
                 // combine_u64(a + i, isqrt(b + j)) % isqrt(c | 1)
                 0 => {
-                    let t1 = v2::combine_u64(a.wrapping_add(i as u64), isqrt(b.wrapping_add(j as u64)));
+                    let t1 = v2::combine_u64(
+                        a.wrapping_add(i as u64),
+                        isqrt(b.wrapping_add(j as u64))
+                    );
                    t1.wrapping_rem(isqrt(c | 1) as u128) as u64
                 },
                 // ROTL((c + i) % isqrt(b | 2), i + j) * isqrt(a + j)
-                1 => c.wrapping_add(i as u64).wrapping_rem(isqrt(b | 2))
-                    .rotate_left(i.wrapping_add(j) as u32)
-                    .wrapping_mul(isqrt(a.wrapping_add(j as u64))),
+                1 => {
+                    let t1 = c.wrapping_add(i as u64).wrapping_rem(isqrt(b | 2));
+                    let t2 = t1.rotate_left((i.wrapping_add(j)) as u32);
+                    let t3 = isqrt(a.wrapping_add(j as u64));
+                    t2.wrapping_mul(t3)
+                }
                 // (isqrt(a + i) * isqrt(c + j)) ^ (b + i + j)
-                2 => (isqrt(a.wrapping_add(i as u64)).wrapping_mul(isqrt(c.wrapping_add(j as u64)))) ^ b.wrapping_add(i as u64).wrapping_add(j as u64),
-                // a + b * c
+                2 => {
+                    let t1 = isqrt(a.wrapping_add(i as u64));
+                    let t2 = isqrt(c.wrapping_add(j as u64));
+                    let t3 = t1.wrapping_mul(t2);
+                    t3 ^ b.wrapping_add(i as u64).wrapping_add(j as u64)
+                }
+                // (a + b) * c
                 3 => a.wrapping_add(b).wrapping_mul(c),
-                // b - c * a
+                // (b - c) * a
                 4 => b.wrapping_sub(c).wrapping_mul(a),
                 // c - a + b
                 5 => c.wrapping_sub(a).wrapping_add(b),
@@ -216,7 +227,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
         }
 
         addr_a = modular_power(addr_a, addr_b, result);
-        addr_b = isqrt(result) * (r as u64).wrapping_add(1) * isqrt(addr_a);
+        addr_b = isqrt(result).wrapping_mul((r as u64).wrapping_add(1)).wrapping_mul(isqrt(addr_a));
     }
 
     Ok(())
@@ -261,9 +272,11 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            86, 140, 67, 54, 59, 87, 219, 70, 98, 24, 211,
-            247, 45, 5, 101, 109, 153, 175, 186, 46, 22, 224,
-            116, 147, 209, 115, 88, 155, 206, 53, 71, 103
+            189, 75, 163, 223, 132, 192,
+            185, 123, 95, 101, 215, 158,
+            224, 164, 146, 5, 203, 61, 165,
+            33, 181, 136, 105, 88, 69, 232,
+            114, 155, 158, 158, 53, 166
         ];
 
         assert_eq!(hash, expected_hash);

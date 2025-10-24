@@ -19,8 +19,6 @@ use crate::tracker::{OpsTracker, MemOp};
 // Memory size is the size of the scratch pad in u64s
 // In bytes, this is equal to ~ 440 kB
 const MEMORY_SIZE: usize = 429 * 128;
-// Memory size in bytes
-const MEMORY_SIZE_BYTES: usize = MEMORY_SIZE * 8;
 
 // Scratchpad iterations in stage 3
 const SCRATCHPAD_ITERS: usize = 3;
@@ -30,7 +28,7 @@ const BUFFER_SIZE: usize = MEMORY_SIZE / 2;
 // Stage 1 config
 const CHUNK_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
-const OUTPUT_SIZE: usize = MEMORY_SIZE * 8;
+const MEMORY_SIZE_BYTES: usize = MEMORY_SIZE * 8;
 
 // Stage 3 AES key
 const KEY: [u8; 16] = *b"xelishash-pow-v2";
@@ -47,8 +45,8 @@ pub(crate) fn combine_u64(high: u64, low: u64) -> u128 {
 // This stage is responsible for generating the scratch pad
 // The scratch pad is generated using ChaCha8 with a custom nonce
 // that is updated after each iteration
-pub(crate) fn stage_1<const M: usize, const M_BYTES: usize>(input: &[u8], scratch_pad: &mut ScratchPadInternal<M>) -> Result<(), Error> {
-    let bytes = scratch_pad.as_mut_bytes::<M_BYTES>()?;
+pub(crate) fn stage_1<const M: usize, const OUTPUT_SIZE: usize>(input: &[u8], scratch_pad: &mut ScratchPadInternal<M>) -> Result<(), Error> {
+    let bytes = scratch_pad.as_mut_bytes::<OUTPUT_SIZE>()?;
 
     // Reset the scratchpad to 0
     // This is done to ensure that the scratchpad is clean

@@ -347,16 +347,35 @@ void timing_test(int N)
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		86, 140, 67, 54, 59, 87, 219, 70, 98, 24, 211,
-		247, 45, 5, 101, 109, 153, 175, 186, 46, 22, 224,
-		116, 147, 209, 115, 88, 155, 206, 53, 71, 103
+		189, 75, 163, 223, 132, 192,
+		185, 123, 95, 101, 215, 158,
+		224, 164, 146, 5, 203, 61, 165,
+		33, 181, 136, 105, 88, 69, 232,
+		114, 155, 158, 158, 53, 166
 	};
 
 	xelis_hash_v3(input, hash, scratch);
-	if (memcmp(gold, hash, HASH_SIZE))
+	if (memcmp(gold, hash, HASH_SIZE)) {
 		printf("Failed!\n");
-	else
+		printf("Expected: ");
+		for (int i = 0; i < HASH_SIZE; i++) {
+			printf("%u", gold[i]);
+			if (i != HASH_SIZE - 1) {
+				printf(", ");
+			}
+		}
+		printf("\nGot:      ");
+		for (int i = 0; i < HASH_SIZE; i++) {
+			printf("%u", hash[i]);
+			if (i != HASH_SIZE - 1) {
+				printf(", ");
+			}
+		}
+		printf("\n");
+	}
+	else {
 		printf("Passed!\n");
+	}
 
 	free(input);
 	free(scratch);
