@@ -18,10 +18,9 @@ const KEY: [u8; 16] = *b"xelishash-pow-v3";
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
 #[inline]
-fn map_index(mut seed: u64) -> usize {
-	/* MurmurHash3 finalizer + multiply-high reduction.
-	* The finalizer avalanches the input seed; the mulhi step maps
-	* uniformly into [0, BUFSIZE) with minimal modulo bias.
+const fn murmurhash3(mut seed: u64) -> u64 {
+    /* MurmurHash3 finalizer.
+    * Avalanches the input seed to produce a uniformly distributed output.
     */
 	seed ^= seed >> 33;
 	seed = seed.wrapping_mul(0xff51afd7ed558ccd);
@@ -29,18 +28,22 @@ fn map_index(mut seed: u64) -> usize {
 	seed = seed.wrapping_mul(0xc4ceb9fe1a85ec53);
 	seed ^= seed >> 33;
 
-    ((seed as u128) * (BUFFER_SIZE as u128) >> 64) as usize
+    seed
 }
 
-fn pick_half(mut seed: u64) -> bool {
-    // Murmur3 finalizer to get a uniform selector bit
-	seed ^= seed >> 33;
-	seed = seed.wrapping_mul(0xff51afd7ed558ccd);
-	seed ^= seed >> 33;
-	seed = seed.wrapping_mul(0xc4ceb9fe1a85ec53);
-	seed ^= seed >> 33;
+#[inline]
+const fn map_index(seed: u64) -> usize {
+	/* MurmurHash3 finalizer + multiply-high reduction.
+	* The finalizer avalanches the input seed; the mulhi step maps
+	* uniformly into [0, BUFSIZE) with minimal modulo bias.
+    */
+    ((murmurhash3(seed) as u128) * (BUFFER_SIZE as u128) >> 64) as usize
+}
 
-    return (seed >> 63) == 0;
+#[inline]
+const fn pick_half(seed: u64) -> bool {
+    // Murmur3 finalizer to get a uniform selector bit
+    (murmurhash3(seed) >> 63) == 1
 }
 
 fn isqrt(n: u64) -> u64 {
@@ -305,11 +308,10 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            220, 215, 125, 182, 169, 212,
-            183, 219, 173, 60, 127, 232,
-            255, 242, 63, 97, 147, 36, 74,
-            168, 101, 139, 124, 23, 7, 177,
-            206, 180, 202, 111, 251, 5
+            218, 109, 194, 144, 126, 42, 197, 16,
+            164, 53, 220, 70, 82, 120, 220, 137,
+            254, 142, 116, 173, 193, 26, 113,
+            47, 234, 93, 143, 254, 223, 20, 25, 163
         ];
 
         assert_eq!(hash, expected_hash);

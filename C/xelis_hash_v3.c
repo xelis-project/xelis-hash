@@ -110,28 +110,28 @@ static inline __uint128_t combine_uint64(uint64_t high, uint64_t low)
 	return ((__uint128_t)high << 64) | low;
 }
 
+static inline uint64_t murmurhash3(uint64_t seed)
+{
+	seed ^= seed >> 33;
+	seed *= 0xff51afd7ed558ccdULL;
+	seed ^= seed >> 33;
+	seed *= 0xc4ceb9fe1a85ec53ULL;
+	seed ^= seed >> 33;
+	return seed;
+}
+
 static inline uint64_t map_index(uint64_t seed)
 {
 	/* MurmurHash3 finalizer + multiply-high reduction.
 	* The finalizer avalanches the input seed; the mulhi step maps
 	* uniformly into [0, BUFSIZE) with minimal modulo bias. */
-	seed ^= seed >> 33;
-	seed *= 0xff51afd7ed558ccdULL;
-	seed ^= seed >> 33;
-	seed *= 0xc4ceb9fe1a85ec53ULL;
-	seed ^= seed >> 33;
-	return (uint64_t)(((__uint128_t)seed * BUFSIZE) >> 64);
+	return (uint64_t)(((__uint128_t)murmurhash3(seed) * BUFSIZE) >> 64);
 }
 
 static inline int pick_half(uint64_t seed)
 {
     // Murmur3 finalizer to get a uniform selector bit
-	seed ^= seed >> 33;
-	seed *= 0xff51afd7ed558ccdULL;
-	seed ^= seed >> 33;
-	seed *= 0xc4ceb9fe1a85ec53ULL;
-	seed ^= seed >> 33;
-	return seed >> 63 == 0;
+	return (murmurhash3(seed) >> 63);
 }
 
 uint64_t isqrt(uint64_t n) {
@@ -376,11 +376,10 @@ void timing_test(int N)
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		220, 215, 125, 182, 169, 212,
-		183, 219, 173, 60, 127, 232,
-		255, 242, 63, 97, 147, 36, 74,
-		168, 101, 139, 124, 23, 7, 177,
-		206, 180, 202, 111, 251, 5
+		218, 109, 194, 144, 126, 42, 197, 16,
+		164, 53, 220, 70, 82, 120, 220, 137,
+		254, 142, 116, 173, 193, 26, 113,
+		47, 234, 93, 143, 254, 223, 20, 25, 163
 	};
 
 	xelis_hash_v3(input, hash, scratch);
