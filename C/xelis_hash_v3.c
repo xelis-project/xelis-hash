@@ -17,8 +17,7 @@
 #define ITERS (2)
 #define HASH_SIZE (32)
 
-static inline void blake3(const uint8_t *input, int len, uint8_t *output)
-{
+static inline void blake3(const uint8_t *input, int len, uint8_t *output) {
 	blake3_hasher hasher;
 	blake3_hasher_init(&hasher);
 	blake3_hasher_update(&hasher, input, len);
@@ -31,8 +30,7 @@ static inline void blake3(const uint8_t *input, int len, uint8_t *output)
 #define CHUNKS (4)
 #define INPUT_LEN (112)
 
-void stage1(const uint8_t *input, size_t input_len, uint8_t scratch_pad[OUTPUT_SIZE])
-{
+void stage1(const uint8_t *input, size_t input_len, uint8_t scratch_pad[OUTPUT_SIZE]) {
 	uint8_t key[CHUNK_SIZE * CHUNKS] = {0};
 	uint8_t input_hash[HASH_SIZE];
 	uint8_t buffer[CHUNK_SIZE * 2];
@@ -68,8 +66,7 @@ void stage1(const uint8_t *input, size_t input_len, uint8_t scratch_pad[OUTPUT_S
 #define BUFSIZE (MEMSIZE / 2)
 
 // https://danlark.org/2020/06/14/128-bit-division
-static inline uint64_t Divide128Div64To64(uint64_t high, uint64_t low, uint64_t divisor, uint64_t *remainder)
-{
+static inline uint64_t Divide128Div64To64(uint64_t high, uint64_t low, uint64_t divisor, uint64_t *remainder) {
 	uint64_t result;
 	__asm__("divq %[v]"
 			: "=a"(result), "=d"(*remainder) // Output parametrs, =a for rax, =d for rdx, [v] is an
@@ -78,40 +75,33 @@ static inline uint64_t Divide128Div64To64(uint64_t high, uint64_t low, uint64_t 
 	return result;
 }
 
-static inline uint64_t udiv(uint64_t high, uint64_t low, uint64_t divisor)
-{
+static inline uint64_t udiv(uint64_t high, uint64_t low, uint64_t divisor) {
 	uint64_t remainder;
 
-	if (high < divisor)
-	{
+	if (high < divisor) {
 		return Divide128Div64To64(high, low, divisor, &remainder);
 	}
-	else
-	{
+	else {
 		(void)Divide128Div64To64(0, high, divisor, &high);
 		return Divide128Div64To64(high, low, divisor, &remainder);
 	}
 }
 
-static inline uint64_t ROTR(uint64_t x, uint32_t r)
-{
+static inline uint64_t ROTR(uint64_t x, uint32_t r) {
 	asm("rorq %%cl, %0" : "+r"(x) : "c"(r));
 	return x;
 }
 
-static inline uint64_t ROTL(uint64_t x, uint32_t r)
-{
+static inline uint64_t ROTL(uint64_t x, uint32_t r) {
 	asm("rolq %%cl, %0" : "+r"(x) : "c"(r));
 	return x;
 }
 
-static inline __uint128_t combine_uint64(uint64_t high, uint64_t low)
-{
+static inline __uint128_t combine_uint64(uint64_t high, uint64_t low) {
 	return ((__uint128_t)high << 64) | low;
 }
 
-static inline uint64_t murmurhash3(uint64_t seed)
-{
+static inline uint64_t murmurhash3(uint64_t seed) {
 	seed ^= seed >> 33;
 	seed *= 0xff51afd7ed558ccdULL;
 	seed ^= seed >> 33;
@@ -120,16 +110,14 @@ static inline uint64_t murmurhash3(uint64_t seed)
 	return seed;
 }
 
-static inline uint64_t map_index(uint64_t seed)
-{
+static inline uint64_t map_index(uint64_t seed) {
 	/* MurmurHash3 finalizer + multiply-high reduction.
 	* The finalizer avalanches the input seed; the mulhi step maps
 	* uniformly into [0, BUFSIZE) with minimal modulo bias. */
 	return (uint64_t)(((__uint128_t)murmurhash3(seed) * BUFSIZE) >> 64);
 }
 
-static inline int pick_half(uint64_t seed)
-{
+static inline int pick_half(uint64_t seed) {
     // Murmur3 finalizer to get a uniform selector bit
 	return (murmurhash3(seed) >> 63);
 }
@@ -169,25 +157,21 @@ uint64_t modular_power(uint64_t base, uint64_t exp, uint64_t mod) {
     return result;
 }
 
-void static inline uint64_to_le_bytes(uint64_t value, uint8_t *bytes)
-{
-	for (int i = 0; i < 8; i++)
-	{
+void static inline uint64_to_le_bytes(uint64_t value, uint8_t *bytes) {
+	for (int i = 0; i < 8; i++) {
 		bytes[i] = value & 0xFF;
 		value >>= 8;
 	}
 }
 
-uint64_t static inline le_bytes_to_uint64(const uint8_t *bytes)
-{
+uint64_t static inline le_bytes_to_uint64(const uint8_t *bytes) {
 	uint64_t value = 0;
 	for (int i = 7; i >= 0; i--)
 		value = (value << 8) | bytes[i];
 	return value;
 }
 
-void static inline aes_single_round(uint8_t *block, const uint8_t *key)
-{
+void static inline aes_single_round(uint8_t *block, const uint8_t *key) {
 	__m128i block_vec = _mm_loadu_si128((const __m128i *)block);
 	__m128i key_vec = _mm_loadu_si128((const __m128i *)key);
 
@@ -197,8 +181,7 @@ void static inline aes_single_round(uint8_t *block, const uint8_t *key)
 	_mm_storeu_si128((__m128i *)block, block_vec);
 }
 
-void stage3(uint64_t *scratch)
-{
+void stage3(uint64_t *scratch) {
 	uint64_t *mem_buffer_a = scratch;
 	uint64_t *mem_buffer_b = &scratch[BUFSIZE];
 
@@ -206,8 +189,7 @@ void stage3(uint64_t *scratch)
 	uint64_t addr_b = mem_buffer_a[BUFSIZE - 1] >> 32;
 	uint32_t r = 0;
 
-	for (uint32_t i = 0; i < ITERS; i++)
-	{
+	for (uint32_t i = 0; i < ITERS; i++) {
 		uint64_t mem_a = mem_buffer_a[addr_a % BUFSIZE];
 		uint64_t mem_b = mem_buffer_b[addr_b % BUFSIZE];
 
@@ -220,8 +202,7 @@ void stage3(uint64_t *scratch)
 		uint64_t hash2 = le_bytes_to_uint64(block + 8);
 		uint64_t result = ~(hash1 ^ hash2);
 
-		for (uint32_t j = 0; j < BUFSIZE; j++)
-		{
+		for (uint32_t j = 0; j < BUFSIZE; j++) {
 			uint64_t a = mem_buffer_a[map_index(result)];
 			uint64_t b = mem_buffer_b[map_index(~ROTR(result, r))];
 			uint64_t c = (r < BUFSIZE) ? mem_buffer_a[r] : mem_buffer_b[r - BUFSIZE];
@@ -229,11 +210,11 @@ void stage3(uint64_t *scratch)
 
 			uint64_t v;
 			__uint128_t t1, t2;
-			switch (ROTL(result, (uint32_t)c) & 0xf)
-			{
+			switch (ROTL(result, (uint32_t)c) & 0xf) {
 			case 0:
-				t1 = combine_uint64((a + i), isqrt(b + j));
-				v = t1 % isqrt(c | 1);
+				t1 = combine_uint64(a + i, isqrt(b + j));
+				uint64_t denom = murmurhash3(c ^ result ^ i ^ j) | 1;
+				v = (uint64_t)(t1 % denom);
 				break;
 			case 1:
 				v = ROTL((c + i) % isqrt(b | 2), i + j) * isqrt(a + j);
@@ -263,43 +244,31 @@ void stage3(uint64_t *scratch)
 				v = (a * b * c);
 				break;
 			case 10:
-			{
 				t1 = combine_uint64(a, b);
-				uint64_t t2 = c | 1;
-				v = t1 % t2;
-			}
-			break;
+				v = t1 % (c | 1);
+				break;
 			case 11:
-			{
 				t1 = combine_uint64(b, c);
 				t2 = combine_uint64(ROTL(result, r), a | 2);
 				v = (t2 > t1) ? c : t1 % t2;
-			}
-			break;
+				break;
 			case 12:
 				v = udiv(c, a, b | 4);
 				break;
 			case 13:
-			{
 				t1 = combine_uint64(ROTL(result, r), b);
 				t2 = combine_uint64(a, c | 8);
 				v = (t1 > t2) ? t1 / t2 : a ^ b;
-			}
-			break;
+				break;
 			case 14:
-			{
 				t1 = combine_uint64(b, a);
-				uint64_t t2 = c;
-				v = (t1 * t2) >> 64;
-			}
-			break;
+				v = (t1 * c) >> 64;
+				break;
 			case 15:
-			{
 				t1 = combine_uint64(a, c);
 				t2 = combine_uint64(ROTR(result, r), b);
 				v = (t1 * t2) >> 64;
-			}
-			break;
+				break;
 			}
 			uint64_t idx_seed = v ^ result;
 			result = ROTL(result ^ v, r);
@@ -319,13 +288,11 @@ void stage3(uint64_t *scratch)
 	}
 }
 
-int xelis_hash_v3_init()
-{
+int xelis_hash_v3_init() {
 	// return sodium_init();
 }
 
-void xelis_hash_v3(uint8_t in[INPUT_LEN], uint8_t hash[HASH_SIZE], uint64_t scratch[MEMSIZE])
-{
+void xelis_hash_v3(uint8_t in[INPUT_LEN], uint8_t hash[HASH_SIZE], uint64_t scratch[MEMSIZE]) {
 	uint8_t *scratch_uint8 = (uint8_t *)scratch;
 
 	stage1(in, INPUT_LEN, scratch_uint8);
@@ -333,16 +300,14 @@ void xelis_hash_v3(uint8_t in[INPUT_LEN], uint8_t hash[HASH_SIZE], uint64_t scra
 	blake3(scratch_uint8, OUTPUT_SIZE, hash);
 }
 
-double display_time(const char *stage, struct timespec start, struct timespec end, int iterations)
-{
+double display_time(const char *stage, struct timespec start, struct timespec end, int iterations) {
 	uint64_t total_time = (end.tv_sec - start.tv_sec) * 1000000000ULL + (end.tv_nsec - start.tv_nsec);
 	double time_per = (double)total_time / iterations;
 	printf("%s: %.3f ms\n", stage, time_per / 1000000.0);
 	return time_per;
 }
 
-void timing_test(int N)
-{
+void timing_test(int N) {
 	uint8_t hash[HASH_SIZE];
 	struct timespec start, end;
 	double time_per, time_sum = 0;
@@ -376,10 +341,10 @@ void timing_test(int N)
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		218, 109, 194, 144, 126, 42, 197, 16,
-		164, 53, 220, 70, 82, 120, 220, 137,
-		254, 142, 116, 173, 193, 26, 113,
-		47, 234, 93, 143, 254, 223, 20, 25, 163
+		220, 125, 107, 5, 193, 114, 57, 220,
+		15, 63, 154, 248, 218, 205, 79, 113,
+		7, 42, 159, 137, 120, 181, 105, 192,
+		254, 95, 254, 194, 173, 250, 129, 56,
 	};
 
 	xelis_hash_v3(input, hash, scratch);
@@ -409,8 +374,7 @@ void timing_test(int N)
 	free(scratch);
 }
 
-typedef struct
-{
+typedef struct {
 	int thread_id;
 	int iterations;
 	uint8_t *input;
@@ -418,20 +382,17 @@ typedef struct
 	uint8_t *hash;
 } thread_data_t;
 
-void set_thread_affinity(int thread_id)
-{
+void set_thread_affinity(int thread_id) {
 	cpu_set_t cpuset;
 	CPU_ZERO(&cpuset);
 	CPU_SET(thread_id % sysconf(_SC_NPROCESSORS_ONLN), &cpuset);
 	int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-	if (rc != 0)
-	{
+	if (rc != 0) {
 		fprintf(stderr, "Error: Unable to set CPU affinity for thread %d\n", thread_id);
 	}
 }
 
-void *hash_thread(void *arg)
-{
+void *hash_thread(void *arg) {
 	thread_data_t *data = (thread_data_t *)arg;
 	//	set_thread_affinity(data->thread_id);
 
@@ -441,23 +402,20 @@ void *hash_thread(void *arg)
 	pthread_exit(NULL);
 }
 
-void hash_test(int t, int i)
-{
+void hash_test(int t, int i) {
 	pthread_t *threads;
 	thread_data_t *thread_data;
 
 	xelis_hash_v3_init();
 
 	printf("\n%-10s %-15s %-10s\n", "Threads", "Hashes", "Hash/s");
-	for (int tc = 1; tc <= t; ++tc)
-	{
+	for (int tc = 1; tc <= t; ++tc) {
 		threads = (pthread_t *)malloc(tc * sizeof(pthread_t));
 		thread_data = (thread_data_t *)malloc(tc * sizeof(thread_data_t));
 		struct timespec start, end;
 
 		clock_gettime(CLOCK_REALTIME, &start);
-		for (int j = 0; j < tc; ++j)
-		{
+		for (int j = 0; j < tc; ++j) {
 			thread_data[j].thread_id = j;
 			thread_data[j].iterations = i;
 			thread_data[j].input = (uint8_t *)calloc(INPUT_LEN, sizeof(uint8_t));
@@ -466,8 +424,7 @@ void hash_test(int t, int i)
 			pthread_create(&threads[j], NULL, hash_thread, (void *)&thread_data[j]);
 		}
 
-		for (int j = 0; j < tc; ++j)
-		{
+		for (int j = 0; j < tc; ++j) {
 			pthread_join(threads[j], NULL);
 			free(thread_data[j].input);
 			free(thread_data[j].scratch);
@@ -485,23 +442,19 @@ void hash_test(int t, int i)
 	}
 }
 
-void print_usage(const char *prog_name)
-{
+void print_usage(const char *prog_name) {
 	printf("Usage: %s [-n iterations] [-t threads]\n", prog_name);
 	printf("  -n iterations    Number of iterations for tests\n");
 	printf("  -t threads       Number of threads to test\n");
 	printf("  -h               Show this help message\n");
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
 	int N = 1000, T = 8;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "n:t:h")) != -1)
-	{
-		switch (opt)
-		{
+	while ((opt = getopt(argc, argv, "n:t:h")) != -1) {
+		switch (opt) {
 		case 'n':
 			N = atoi(optarg);
 			break;
@@ -518,5 +471,6 @@ int main(int argc, char *argv[])
 	}
 
 	timing_test(N);
-	hash_test(T, N);
+	if (T)
+		hash_test(T, N);
 }
