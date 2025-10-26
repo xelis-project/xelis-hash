@@ -167,14 +167,15 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             }
 
             let v = match branch_idx {
-                // combine_u64(a + i, isqrt(b + j)) % isqrt(c | 1)
+                // combine_u64((a + i), isqrt(b + j)) % (murmurhash3(c ^ result ^ i ^ j) | 1)
                 0 => {
                     let t1 = v2::combine_u64(
                         a.wrapping_add(i as u64),
-                        isqrt(b.wrapping_add(j as u64))
+                        isqrt(b.wrapping_add(j as u64)),
                     );
-                   t1.wrapping_rem(isqrt(c | 1) as u128) as u64
-                },
+                    let denom = murmurhash3(c ^ result ^ i as u64 ^ j as u64) | 1;
+                    (t1 % (denom as u128)) as u64
+                }
                 // ROTL((c + i) % isqrt(b | 2), i + j) * isqrt(a + j)
                 1 => {
                     let t1 = c.wrapping_add(i as u64).wrapping_rem(isqrt(b | 2));
@@ -308,10 +309,10 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            218, 109, 194, 144, 126, 42, 197, 16,
-            164, 53, 220, 70, 82, 120, 220, 137,
-            254, 142, 116, 173, 193, 26, 113,
-            47, 234, 93, 143, 254, 223, 20, 25, 163
+            220, 125, 107, 5, 193, 114, 57, 220,
+            15, 63, 154, 248, 218, 205, 79, 113,
+            7, 42, 159, 137, 120, 181, 105, 192,
+            254, 95, 254, 194, 173, 250, 129, 56,
         ];
 
         assert_eq!(hash, expected_hash);
@@ -334,9 +335,10 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            241, 59, 107, 247, 234, 8, 176, 233, 54, 2, 129,
-            92, 244, 218, 155, 17, 91, 53, 89, 202, 2, 130,
-            162, 238, 183, 184, 249, 53, 75, 76, 154, 50
+            34, 34, 205, 25, 30, 84, 34, 154,
+            128, 54, 199, 81, 18, 144, 227, 43,
+            189, 36, 81, 225, 210, 90, 164, 34,
+            95, 242, 79, 232, 155, 218, 59, 109
         ];
 
         assert_eq!(hash, expected_hash);
