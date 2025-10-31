@@ -17,7 +17,7 @@ const KEY: [u8; 16] = *b"xelishash-pow-v3";
 
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
-#[inline]
+#[inline(always)]
 const fn murmurhash3(mut seed: u64) -> u64 {
     /* MurmurHash3 finalizer.
     * Avalanches the input seed to produce a uniformly distributed output.
@@ -31,8 +31,8 @@ const fn murmurhash3(mut seed: u64) -> u64 {
     seed
 }
 
-#[inline]
-const fn map_index(seed: u64) -> usize {
+#[inline(always)]
+pub const fn map_index(seed: u64) -> usize {
 	/* MurmurHash3 finalizer + multiply-high reduction.
 	* The finalizer avalanches the input seed; the mulhi step maps
 	* uniformly into [0, BUFSIZE) with minimal modulo bias.
@@ -40,13 +40,15 @@ const fn map_index(seed: u64) -> usize {
     ((murmurhash3(seed) as u128) * (BUFFER_SIZE as u128) >> 64) as usize
 }
 
-#[inline]
-const fn pick_half(seed: u64) -> bool {
+#[inline(always)]
+pub const fn pick_half(seed: u64) -> bool {
     // Murmur3 finalizer to get a uniform selector bit
     (murmurhash3(seed) >> 63) == 1
 }
 
-fn isqrt(n: u64) -> u64 {
+
+#[inline(always)]
+pub fn isqrt(n: u64) -> u64 {
     if n < 2 {
         return n;
     }
@@ -317,7 +319,7 @@ mod tests {
 
         assert_eq!(hash, expected_hash);
     }
-
+ 
     #[test]
     fn test_verify_output() {
         let input = [
@@ -359,5 +361,23 @@ mod tests {
 
         distribution.generate_branch_distribution("branch_v3.png").unwrap();
         distribution.generate_memory_usage_graph("memory_v3.png").unwrap();
+    }
+
+    #[test]
+    fn test_pick_half() {
+        let mut ones = 0;
+        let mut zeros = 0;
+
+        for _ in 0..1_000_000 {
+            let i = OsRng.next_u64();
+            if pick_half(i) {
+                ones += 1;
+            } else {
+                zeros += 1;
+            }
+        }
+
+        let ratio = ones as f64 / (ones + zeros) as f64;
+        assert!((ratio - 0.5).abs() < 0.01, "pick_half is not balanced: ratio={}", ratio);
     }
 }
