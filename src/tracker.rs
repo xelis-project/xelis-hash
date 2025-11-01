@@ -230,6 +230,10 @@ pub fn generate_memory_usage_graph(
     let write_fill = RGBColor(220, 50, 47).filled();
     let read_line = RGBColor(30, 144, 255);
     let write_line = RGBColor(220, 50, 47);
+
+    let avg_read_line = RGBColor(100, 180, 255);
+    let avg_write_line = RGBColor(255, 100, 100);
+
     let bar_width = 1.0;
 
     for i in 0..scratchpad_size {
@@ -254,12 +258,12 @@ pub fn generate_memory_usage_graph(
     // Zero-phase MA overlays
     chart.draw_series(LineSeries::new(
         (0..scratchpad_size).map(|i| (i as f64, read_ma[i])),
-        ShapeStyle::from(&read_line).stroke_width(3),
+        ShapeStyle::from(&avg_read_line).stroke_width(3),
     ))?.label(format!("Read MA_filtfilt({})", ma_window.max(1)));
 
     chart.draw_series(LineSeries::new(
         (0..scratchpad_size).map(|i| (i as f64, write_ma[i])),
-        ShapeStyle::from(&write_line).stroke_width(3),
+        ShapeStyle::from(&avg_write_line).stroke_width(3),
     ))?.label(format!("Write MA_filtfilt({})", ma_window.max(1)));
 
     // Legend

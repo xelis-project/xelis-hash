@@ -398,7 +398,7 @@ mod tests {
     #[test]
     #[cfg(feature = "tracker")]
     fn test_distribution() {
-        const ITERATIONS: usize = 50_000;
+        const ITERATIONS: usize = 10_000;
 
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
@@ -409,7 +409,7 @@ mod tests {
         }
 
         distribution.generate_branch_distribution("branch_v3.png").unwrap();
-        distribution.generate_memory_usage_graph("memory_v3.png", 2000).unwrap();
+        distribution.generate_memory_usage_graph("memory_v3.png", 200).unwrap();
     }
 
     #[test]
