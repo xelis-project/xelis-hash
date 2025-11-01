@@ -360,9 +360,9 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            19, 189, 162, 193, 119, 21, 97, 23, 188, 136,
-            120, 97, 42, 164, 89, 101, 176, 169, 225, 236,
-            1, 239, 86, 198, 244, 133, 7, 138, 145, 55, 206, 191
+            246, 164, 105, 223, 33, 5, 137, 118, 9, 126,
+            65, 99, 23, 148, 158, 172, 153, 51, 73, 14, 60,
+            18, 210, 78, 33, 49, 119, 117, 22, 1, 101, 128
         ];
 
         assert_eq!(hash, expected_hash);
@@ -385,9 +385,9 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            184, 243, 76, 176, 70, 187, 114, 150, 246, 245, 203,
-            7, 254, 64, 252, 223, 147, 106, 224, 208, 208, 65,
-            144, 164, 191, 171, 89, 241, 99, 125, 139, 165
+            214, 149, 146, 62, 182, 9, 76, 141, 122, 93,
+            99, 27, 200, 121, 17, 63, 229, 0, 253, 74, 241,
+            131, 31, 52, 145, 63, 228, 120, 68, 26, 212, 89
         ];
 
         assert_eq!(hash, expected_hash);
