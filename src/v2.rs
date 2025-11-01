@@ -379,6 +379,6 @@ mod tests {
         }
 
         distribution.generate_branch_distribution("branch_v2.png").unwrap();
-        distribution.generate_memory_usage_graph("memory_v2.png").unwrap();
+        distribution.generate_memory_usage_graph("memory_v2.png", 100).unwrap();
     }
 }

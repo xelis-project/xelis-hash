@@ -124,114 +124,177 @@ impl OpsTracker {
         Ok(())
     }
 
-     /// Generate a grouped bar chart showing memory usage per index, split by Read and Write
-    pub fn generate_memory_usage_graph(&self, output_path: &str) -> Result<(), anyhow::Error> {
-             let scratchpad_size = self.mem_ops.len();
-        let mut read_counts = vec![0usize; scratchpad_size];
-        let mut write_counts = vec![0usize; scratchpad_size];
+pub fn generate_memory_usage_graph(
+    &self,
+    output_path: &str,
+    ma_window: usize,
+) -> Result<(), anyhow::Error> {
+    use plotters::prelude::*;
 
-        // Count reads and writes
-        for (i, ops) in self.mem_ops.iter().enumerate() {
-            for &op in ops {
-                match op {
-                    MemOp::Read => read_counts[i] += 1,
-                    MemOp::Write => write_counts[i] += 1,
-                }
+    let scratchpad_size = self.mem_ops.len();
+    let mut read_counts = vec![0usize; scratchpad_size];
+    let mut write_counts = vec![0usize; scratchpad_size];
+
+    for (i, ops) in self.mem_ops.iter().enumerate() {
+        for &op in ops {
+            match op {
+                MemOp::Read => read_counts[i] += 1,
+                MemOp::Write => write_counts[i] += 1,
             }
         }
-
-        // Find max value for Y-axis
-        let max_val = read_counts
-            .iter()
-            .zip(write_counts.iter())
-            .map(|(&r, &w)| r.max(w))
-            .max()
-            .unwrap_or(1) as f64;
-
-        let root = BitMapBackend::new(output_path, (1920, 1080)).into_drawing_area();
-        root.fill(&WHITE)?;
-
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Memory Accesses per Index (Stacked Read/Write)", ("sans-serif", 28))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(60)
-            .build_cartesian_2d(0f64..scratchpad_size as f64, 0f64..(max_val * 1.15))?;
-
-        chart
-            .configure_mesh()
-            .x_labels(20)
-            .x_label_formatter(&|x| format!("{}", *x as usize))
-            .x_desc("Memory Index")
-            .y_desc("Access Count")
-            .axis_desc_style(("sans-serif", 18))
-            .draw()?;
-
-        let read_color = RGBColor(30, 144, 255).filled(); // blue
-        let write_color = RGBColor(220, 50, 47).filled(); // red
-        let bar_width = 1.0;
-
-        // Draw stacked bars
-        for i in 0..scratchpad_size {
-            let x0 = i as f64 - bar_width / 2.0;
-            let x1 = i as f64 + bar_width / 2.0;
-
-            let read_height = read_counts[i] as f64;
-            let write_height = write_counts[i] as f64;
-
-            // Based on which is higher, draw that first for visibility
-            // Then draw above it the lower one
-            if read_height > write_height {
-                // Draw read part
-                chart.draw_series(std::iter::once(Rectangle::new(
-                    [(x0, 0.0), (x1, read_height)],
-                    read_color.clone(),
-                )))?;
-
-                if write_height > 0.0 {
-                    // Draw write part on top of read
-                    chart.draw_series(std::iter::once(Rectangle::new(
-                        [(x0, 0.0), (x1, write_height)],
-                        write_color.clone(),
-                    )))?;
-                }
-            } else {
-                // Draw write part
-                chart.draw_series(std::iter::once(Rectangle::new(
-                    [(x0, 0.0), (x1, write_height)],
-                    write_color.clone(),
-                )))?;
-
-                if read_height > 0.0 {
-                    // Draw read part on top of write
-                    chart.draw_series(std::iter::once(Rectangle::new(
-                        [(x0, 0.0), (x1, read_height)],
-                        read_color.clone(),
-                    )))?;
-                }
-            }
-        }
-
-        // Add **manual legend** using empty series just for labels
-        chart
-            .draw_series(std::iter::once(Rectangle::new([(0.0, 0.0), (0.0, 0.0)], read_color.clone())))
-            ?.label("Read")
-            .legend(|(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], RGBColor(30, 144, 255).filled()));
-
-        chart
-            .draw_series(std::iter::once(Rectangle::new([(0.0, 0.0), (0.0, 0.0)], write_color.clone())))
-            ?.label("Write")
-            .legend(|(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], RGBColor(220, 50, 47).filled()));
-
-        chart
-            .configure_series_labels()
-            .position(SeriesLabelPosition::UpperRight)
-            .border_style(&BLACK)
-            .background_style(WHITE.mix(0.8))
-            .draw()?;
-
-        root.present()?;
-
-        Ok(())
     }
+
+    // ---- zero-phase moving average (filtfilt for a boxcar) ----
+
+    #[inline]
+    fn ma_forward_usize(data: &[usize], w: usize) -> Vec<f64> {
+        let w = w.max(1);
+        let mut out = vec![0.0; data.len()];
+        let mut sum: u64 = 0;
+        for i in 0..data.len() {
+            sum += data[i] as u64;
+            if i >= w { sum -= data[i - w] as u64; }
+            let denom = (i + 1).min(w) as f64;
+            out[i] = sum as f64 / denom;
+        }
+        out
+    }
+
+    #[inline]
+    fn ma_forward_f64(data: &[f64], w: usize) -> Vec<f64> {
+        let w = w.max(1);
+        let mut out = vec![0.0; data.len()];
+        let mut sum: f64 = 0.0;
+        for i in 0..data.len() {
+            sum += data[i];
+            if i >= w { sum -= data[i - w]; }
+            let denom = (i + 1).min(w) as f64;
+            out[i] = sum / denom;
+        }
+        out
+    }
+
+    #[inline]
+    fn filtfilt_ma_usize(data: &[usize], w: usize) -> Vec<f64> {
+        let fwd = ma_forward_usize(data, w);
+        let mut rev = fwd.clone();
+        rev.reverse();
+        let rev2 = ma_forward_f64(&rev, w);
+        let mut out = rev2;
+        out.reverse();
+        out
+    }
+
+    let read_ma = filtfilt_ma_usize(&read_counts, ma_window);
+    let write_ma = filtfilt_ma_usize(&write_counts, ma_window);
+
+    // Y-axis
+    let counts_max = read_counts.iter().zip(write_counts.iter())
+        .map(|(&r, &w)| r.max(w))
+        .max()
+        .unwrap_or(1) as f64;
+    let ma_max = read_ma.iter().cloned().fold(0.0, f64::max)
+        .max(write_ma.iter().cloned().fold(0.0, f64::max));
+    let y_max = counts_max.max(ma_max) * 1.15;
+
+    // ---- plot ----
+    let root = BitMapBackend::new(output_path, (1920, 1080)).into_drawing_area();
+    root.fill(&WHITE)?;
+
+    let mut chart = ChartBuilder::on(&root)
+        .caption(
+            format!("Memory Accesses per Index (Read/Write + filtfilt MA({}))", ma_window.max(1)),
+            ("sans-serif", 28),
+        )
+        .margin(20)
+        .x_label_area_size(40)
+        .y_label_area_size(60)
+        .build_cartesian_2d(0f64..scratchpad_size as f64, 0f64..y_max)?;
+
+    chart
+        .configure_mesh()
+        .x_labels(20)
+        .x_label_formatter(&|x| format!("{}", *x as usize))
+        .x_desc("Memory Index")
+        .y_desc("Access Count")
+        .axis_desc_style(("sans-serif", 18))
+        .draw()?;
+
+    let read_fill = RGBColor(30, 144, 255).filled();
+    let write_fill = RGBColor(220, 50, 47).filled();
+    const read_line: RGBColor = RGBColor(30, 144, 255);
+    const write_line: RGBColor = RGBColor(220, 50, 47);
+    let bar_width = 1.0;
+
+    for i in 0..scratchpad_size {
+        let x0 = i as f64 - bar_width / 2.0;
+        let x1 = i as f64 + bar_width / 2.0;
+        let r = read_counts[i] as f64;
+        let w = write_counts[i] as f64;
+
+        if r > w {
+            chart.draw_series(std::iter::once(Rectangle::new([(x0, 0.0), (x1, r)], read_fill.clone())))?;
+            if w > 0.0 {
+                chart.draw_series(std::iter::once(Rectangle::new([(x0, 0.0), (x1, w)], write_fill.clone())))?;
+            }
+        } else {
+            chart.draw_series(std::iter::once(Rectangle::new([(x0, 0.0), (x1, w)], write_fill.clone())))?;
+            if r > 0.0 {
+                chart.draw_series(std::iter::once(Rectangle::new([(x0, 0.0), (x1, r)], read_fill.clone())))?;
+            }
+        }
+    }
+
+    // Zero-phase MA overlays
+    chart.draw_series(LineSeries::new(
+        (0..scratchpad_size).map(|i| (i as f64, read_ma[i])),
+        ShapeStyle::from(&read_line).stroke_width(3),
+    ))?.label(format!("Read MA_filtfilt({})", ma_window.max(1)));
+
+    chart.draw_series(LineSeries::new(
+        (0..scratchpad_size).map(|i| (i as f64, write_ma[i])),
+        ShapeStyle::from(&write_line).stroke_width(3),
+    ))?.label(format!("Write MA_filtfilt({})", ma_window.max(1)));
+
+    // Legend
+    chart
+        .draw_series(std::iter::once(Rectangle::new([(0.0, 0.0), (0.0, 0.0)], read_fill.clone())))?
+        .label("Read")
+        .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], read_fill.clone()));
+    chart
+        .draw_series(std::iter::once(Rectangle::new([(0.0, 0.0), (0.0, 0.0)], write_fill.clone())))?
+        .label("Write")
+        .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], write_fill.clone()));
+    chart
+        .draw_series(std::iter::once(PathElement::new(
+            vec![(0.0, 0.0), (0.0, 0.0)],
+            ShapeStyle::from(&read_line).stroke_width(3),
+        )))?
+        .label(format!("Read MA_filtfilt({})", ma_window.max(1)))
+        .legend(|(x, y)| PathElement::new(
+            vec![(x, y), (x + 14, y)],
+            ShapeStyle::from(&read_line).stroke_width(3),
+        ));
+    chart
+        .draw_series(std::iter::once(PathElement::new(
+            vec![(0.0, 0.0), (0.0, 0.0)],
+            ShapeStyle::from(&write_line).stroke_width(3),
+        )))?
+        .label(format!("Write MA_filtfilt({})", ma_window.max(1)))
+        .legend(|(x, y)| PathElement::new(
+            vec![(x, y), (x + 14, y)],
+            ShapeStyle::from(&write_line).stroke_width(3),
+        ));
+
+    chart
+        .configure_series_labels()
+        .position(SeriesLabelPosition::UpperRight)
+        .border_style(&BLACK)
+        .background_style(WHITE.mix(0.8))
+        .draw()?;
+
+    root.present()?;
+    Ok(())
+}
+
 }

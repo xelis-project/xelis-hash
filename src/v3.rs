@@ -18,7 +18,59 @@ const KEY: [u8; 16] = *b"xelishash-pow-v3";
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
 #[inline(always)]
-const fn murmurhash3(mut seed: u64) -> u64 {
+pub fn clmul64(a: u64, b: u64) -> u64 {
+    #[cfg(target_feature = "pclmulqdq")]
+    unsafe {
+        use core::arch::x86_64::*;
+        let va = _mm_cvtsi64_si128(a as i64);
+        let vb = _mm_cvtsi64_si128(b as i64);
+        let p  = _mm_clmulepi64_si128(va, vb, 0x00);
+        return _mm_cvtsi128_si64(p) as u64
+    }
+
+    #[cfg(all(
+        target_feature = "aes",
+        target_feature = "neon",
+        target_arch = "aarch64",
+    ))]
+    unsafe {
+        use core::arch::aarch64::*;
+        return vmull_p64(a, b) as u64
+    }
+
+    #[cfg(not(any(
+        all(target_feature = "pclmulqdq"),
+        all(
+            target_feature = "aes",
+            target_feature = "neon",
+            target_arch = "aarch64",
+        ),
+    )))]
+    portable_clmul64(a, b)
+}
+
+#[inline(always)]
+pub const fn portable_clmul64(x: u64, mut y: u64) -> u64 {
+    let mut out = 0;
+    while y > 0 {
+        let lsb = y & y.wrapping_neg();
+        out ^= x.wrapping_mul(lsb);
+        y ^= lsb;
+    }
+    out
+}
+
+#[inline]
+fn murmurhash3(mut x: u64) -> u64 {
+    /* MurmurHash3 finalizer.
+    * Avalanches the input seed to produce a uniformly distributed output.
+    */
+    x ^= x >> 33;
+    x = clmul64(x, 0xff51afd7ed558ccd);
+    x
+}
+
+const fn murmurhash32(mut seed: u64) -> u64 {
     /* MurmurHash3 finalizer.
     * Avalanches the input seed to produce a uniformly distributed output.
     */
@@ -32,7 +84,7 @@ const fn murmurhash3(mut seed: u64) -> u64 {
 }
 
 #[inline(always)]
-pub const fn map_index(seed: u64) -> usize {
+pub fn map_index(seed: u64) -> usize {
 	/* MurmurHash3 finalizer + multiply-high reduction.
 	* The finalizer avalanches the input seed; the mulhi step maps
 	* uniformly into [0, BUFSIZE) with minimal modulo bias.
@@ -41,11 +93,10 @@ pub const fn map_index(seed: u64) -> usize {
 }
 
 #[inline(always)]
-pub const fn pick_half(seed: u64) -> bool {
-    // Murmur3 finalizer to get a uniform selector bit
-    (murmurhash3(seed) >> 63) == 1
+pub fn pick_half(seed: u64) -> bool {
+    // // Murmur3 finalizer to get a uniform selector bit
+    (murmurhash32(seed) & (1u64 << 58)) != 0
 }
-
 
 #[inline(always)]
 pub fn isqrt(n: u64) -> u64 {
@@ -66,7 +117,7 @@ pub fn isqrt(n: u64) -> u64 {
     }
 }
 
-fn modular_power(mut base: u64, mut exp: u64, mod_: u64) -> u64 {
+const fn modular_power(mut base: u64, mut exp: u64, mod_: u64) -> u64 {
     let mut result: u64 = 1;
     // Ensure base is within the range of mod
     base %= mod_;
@@ -287,7 +338,7 @@ pub fn xelis_hash(input: &[u8], scratch_pad: &mut ScratchPad, #[cfg(feature = "t
 
 #[cfg(test)]
 mod tests {
-    use rand::{rngs::OsRng, RngCore};
+    use rand::{RngCore, rngs::OsRng};
     use super::*;
 
     #[test]
@@ -349,7 +400,7 @@ mod tests {
     #[test]
     #[cfg(feature = "tracker")]
     fn test_distribution() {
-        const ITERATIONS: usize = 1000;
+        const ITERATIONS: usize = 50_000;
 
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
@@ -360,7 +411,7 @@ mod tests {
         }
 
         distribution.generate_branch_distribution("branch_v3.png").unwrap();
-        distribution.generate_memory_usage_graph("memory_v3.png").unwrap();
+        distribution.generate_memory_usage_graph("memory_v3.png", 2000).unwrap();
     }
 
     #[test]
@@ -379,5 +430,37 @@ mod tests {
 
         let ratio = ones as f64 / (ones + zeros) as f64;
         assert!((ratio - 0.5).abs() < 0.01, "pick_half is not balanced: ratio={}", ratio);
+    }
+
+    #[test]
+    fn test_clmul() {
+        // Verify platform-specific clmul to portable.
+        for _ in 0..1_000_000 {
+            let x = OsRng.next_u64();
+            let y = OsRng.next_u64();
+            assert_eq!(portable_clmul64(x, y), clmul64(x, y));
+        }
+
+        // Verify portable clmul for known test vectors.
+        assert_eq!(
+            portable_clmul64(0x8b44729195dde0ef, 0xb976c5ae2726fab0),
+            0x4ae14eae84899290
+        );
+        assert_eq!(
+            portable_clmul64(0x399b6ed00c44b301, 0x693341db5acb2ff0),
+            0x48dfa88344823ff0
+        );
+        assert_eq!(
+            portable_clmul64(0xdf4c9f6e60deb640, 0x6d4bcdb217ac4880),
+            0x7300ffe474792000
+        );
+        assert_eq!(
+            portable_clmul64(0xa7adf3c53a200a51, 0x818cb40fe11b431e),
+            0x6a280181d521797e
+        );
+        assert_eq!(
+            portable_clmul64(0x5e78e12b744f228c, 0x4225ff19e9273266),
+            0xa48b73cafb9665a8
+        );
     }
 }
