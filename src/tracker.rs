@@ -17,6 +17,12 @@ pub enum MemOp {
     Write,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MemTracker {
+    pub read: u64,
+    pub write: u64,
+}
+
 // Track the operations used in each iteration
 // This is used to verify that we have a good distribution
 // in branches and memory operations
@@ -27,14 +33,14 @@ pub struct OpsTracker {
     // memory operations used at each iteration
     // first Vec represents the scratchpad with each index
     // inner Vec represents the memory operations used at each index
-    mem_ops: Vec<Vec<MemOp>>,
+    mem_ops: Vec<MemTracker>,
 }
 
 impl OpsTracker {
     pub fn new(scratchpad: usize) -> Self {
         Self {
             branches: [0; 16],
-            mem_ops: vec![Vec::new(); scratchpad],
+            mem_ops: vec![Default::default(); scratchpad],
         }
     }
 
@@ -43,14 +49,18 @@ impl OpsTracker {
     }
 
     pub fn add_mem_op(&mut self, index: usize, mem_op: MemOp) {
-        self.mem_ops[index].push(mem_op);
+        let tracker = &mut self.mem_ops[index];
+        match mem_op {
+            MemOp::Read => tracker.read += 1,
+            MemOp::Write => tracker.write += 1,
+        }
     }
 
     pub fn get_branches(&self) -> &[usize; 16] {
         &self.branches
     }
 
-    pub fn get_mem_ops(&self) -> &Vec<Vec<MemOp>> {
+    pub fn get_mem_ops(&self) -> &Vec<MemTracker> {
         &self.mem_ops
     }
 
@@ -136,12 +146,8 @@ pub fn generate_memory_usage_graph(
     let mut write_counts = vec![0usize; scratchpad_size];
 
     for (i, ops) in self.mem_ops.iter().enumerate() {
-        for &op in ops {
-            match op {
-                MemOp::Read => read_counts[i] += 1,
-                MemOp::Write => write_counts[i] += 1,
-            }
-        }
+        read_counts[i] = ops.read as usize;
+        write_counts[i] = ops.write as usize;
     }
 
     // ---- zero-phase moving average (filtfilt for a boxcar) ----
