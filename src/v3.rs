@@ -61,41 +61,35 @@ pub const fn portable_clmul64(x: u64, mut y: u64) -> u64 {
 }
 
 #[inline]
-fn murmurhash3(mut x: u64) -> u64 {
+const fn murmurhash3(mut seed: u64) -> u64 {
     /* MurmurHash3 finalizer.
     * Avalanches the input seed to produce a uniformly distributed output.
     */
-    x ^= x >> 33;
-    x = clmul64(x, 0xff51afd7ed558ccd);
-    x
-}
-
-const fn murmurhash32(mut seed: u64) -> u64 {
-    /* MurmurHash3 finalizer.
-    * Avalanches the input seed to produce a uniformly distributed output.
-    */
-	seed ^= seed >> 33;
+	seed ^= seed >> 55;
 	seed = seed.wrapping_mul(0xff51afd7ed558ccd);
-	seed ^= seed >> 33;
+	seed ^= seed >> 32;
 	seed = seed.wrapping_mul(0xc4ceb9fe1a85ec53);
-	seed ^= seed >> 33;
+	seed ^= seed >> 15;
 
     seed
 }
 
 #[inline(always)]
-pub fn map_index(seed: u64) -> usize {
-	/* MurmurHash3 finalizer + multiply-high reduction.
+pub fn map_index(mut x: u64) -> usize {
+	/* MurmurHash3-like finalizer + multiply-high reduction.
 	* The finalizer avalanches the input seed; the mulhi step maps
 	* uniformly into [0, BUFSIZE) with minimal modulo bias.
     */
-    ((murmurhash3(seed) as u128) * (BUFFER_SIZE as u128) >> 64) as usize
+    x ^= x >> 33;
+    x = clmul64(x, 0xff51afd7ed558ccd);
+
+    ((x as u128) * (BUFFER_SIZE as u128) >> 64) as usize
 }
 
 #[inline(always)]
 pub fn pick_half(seed: u64) -> bool {
     // // Murmur3 finalizer to get a uniform selector bit
-    (murmurhash32(seed) & (1u64 << 58)) != 0
+    (murmurhash3(seed) & (1u64 << 58)) != 0
 }
 
 #[inline(always)]
@@ -293,14 +287,15 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             let idx_seed = v ^ result;
             result = idx_seed.rotate_left(r as u32);
 
-            let index_t = map_index(idx_seed);
-            let index_a = map_index(result ^ 0x9e3779b97f4a7c15);
-            let index_b = map_index(!result ^ 0xd2b74407b1ce6e93);
-
             let use_buffer_b = pick_half(v);
+            let index_t = map_index(idx_seed);
             let t = if use_buffer_b { mem_buffer_b[index_t] } else { mem_buffer_a[index_t] } ^ result;
-            mem_buffer_a[index_a] = t;
-			mem_buffer_b[index_b] ^= t.rotate_right(i.wrapping_add(j) as u32);
+
+            let index_a = map_index(t ^ result ^ 0x9e3779b97f4a7c15);
+            let index_b = map_index(index_a as u64 ^ !result ^ 0xd2b74407b1ce6e93);
+
+            let a = std::mem::replace(&mut mem_buffer_a[index_a], t);
+            mem_buffer_b[index_b] ^= a ^ t.rotate_right(i.wrapping_add(j) as u32);
 
             #[cfg(feature = "tracker")]
             {
@@ -311,7 +306,10 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 }
 
                 // mem_buffer_a[index_a] and mem_buffer_b[index_b] are written
+                tracker.add_mem_op(index_a, MemOp::Read);
                 tracker.add_mem_op(index_a, MemOp::Write);
+
+                tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
                 tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Write);
             }
         }
@@ -409,7 +407,7 @@ mod tests {
         }
 
         distribution.generate_branch_distribution("branch_v3.png").unwrap();
-        distribution.generate_memory_usage_graph("memory_v3.png", 200).unwrap();
+        distribution.generate_memory_usage_graph("memory_v3.png", 1000).unwrap();
     }
 
     #[test]
@@ -460,5 +458,18 @@ mod tests {
             portable_clmul64(0x5e78e12b744f228c, 0x4225ff19e9273266),
             0xa48b73cafb9665a8
         );
+    }
+
+    #[test]
+    fn test_map_index() {
+        for _ in 0..10_000_000 {
+            let i = OsRng.next_u64();
+            let index = map_index(i);
+
+            assert!(index < BUFFER_SIZE);
+        }
+
+        assert!(map_index(0) == 0);
+        assert!(map_index(u64::MAX) < BUFFER_SIZE);
     }
 }
