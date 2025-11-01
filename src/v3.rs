@@ -291,7 +291,7 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
             };
 
             let idx_seed = v ^ result;
-            result = (result ^ v).rotate_left(r as u32);
+            result = idx_seed.rotate_left(r as u32);
 
             let index_t = map_index(idx_seed);
             let index_a = map_index(result ^ 0x9e3779b97f4a7c15);

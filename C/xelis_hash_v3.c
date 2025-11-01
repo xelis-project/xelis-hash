@@ -271,7 +271,7 @@ void stage3(uint64_t *scratch) {
 				break;
 			}
 			uint64_t idx_seed = v ^ result;
-			result = ROTL(result ^ v, r);
+			result = ROTL(idx_seed, r);
 
 			uint64_t idx_t = map_index(idx_seed);
 			uint64_t idx_a = map_index(result ^ 0x9e3779b97f4a7c15);
