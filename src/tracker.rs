@@ -228,8 +228,8 @@ pub fn generate_memory_usage_graph(
 
     let read_fill = RGBColor(30, 144, 255).filled();
     let write_fill = RGBColor(220, 50, 47).filled();
-    const read_line: RGBColor = RGBColor(30, 144, 255);
-    const write_line: RGBColor = RGBColor(220, 50, 47);
+    let read_line = RGBColor(30, 144, 255);
+    let write_line = RGBColor(220, 50, 47);
     let bar_width = 1.0;
 
     for i in 0..scratchpad_size {
@@ -277,7 +277,7 @@ pub fn generate_memory_usage_graph(
             ShapeStyle::from(&read_line).stroke_width(3),
         )))?
         .label(format!("Read MA_filtfilt({})", ma_window.max(1)))
-        .legend(|(x, y)| PathElement::new(
+        .legend(move |(x, y)| PathElement::new(
             vec![(x, y), (x + 14, y)],
             ShapeStyle::from(&read_line).stroke_width(3),
         ));
@@ -287,7 +287,7 @@ pub fn generate_memory_usage_graph(
             ShapeStyle::from(&write_line).stroke_width(3),
         )))?
         .label(format!("Write MA_filtfilt({})", ma_window.max(1)))
-        .legend(|(x, y)| PathElement::new(
+        .legend(move |(x, y)| PathElement::new(
             vec![(x, y), (x + 14, y)],
             ShapeStyle::from(&write_line).stroke_width(3),
         ));
