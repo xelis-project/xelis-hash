@@ -290,4 +290,10 @@ mod tests {
         ];
         assert_eq!(hash, expected_hash);
     }
+
+    #[test]
+    fn test_bytes_alignment() {
+        let alignment = std::mem::align_of::<Bytes8Alignment>();
+        assert_eq!(alignment, 8);
+    }
 }
