@@ -39,7 +39,7 @@ pub fn clmul64(a: u64, b: u64) -> u64 {
     }
 
     #[cfg(not(any(
-        all(target_feature = "pclmulqdq"),
+        target_feature = "pclmulqdq",
         all(
             target_feature = "aes",
             target_feature = "neon",

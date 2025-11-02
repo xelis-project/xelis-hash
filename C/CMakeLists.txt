@@ -16,6 +16,13 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Enable AES-NI and PCLMUL instructions for all targets
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-maes -mpclmul)
+elseif (MSVC)
+    add_compile_options(/arch:AVX)
+endif()
+
 set(SOURCES
     ChaCha20-SIMD/chacha20.c
     ChaCha20-SIMD/chacha20_sse2.c
@@ -27,7 +34,6 @@ set(SOURCES
 
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-
 
 target_link_libraries(${PROJECT_NAME} blake3 pthread m)
 
