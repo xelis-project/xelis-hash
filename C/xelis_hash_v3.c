@@ -12,6 +12,12 @@
 #include "ChaCha20-SIMD/chacha20.h"
 #include <math.h>
 
+// Include ARM NEON header if compiling for ARM architecture
+// Used by clmul64 function
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+
 #define INPUT_LEN (112)
 #define MEMSIZE (531 * 128)
 #define ITERS (2)
@@ -111,20 +117,22 @@ static inline uint64_t murmurhash3(uint64_t seed) {
 }
 
 static inline uint64_t clmul64(uint64_t x, uint64_t y) {
-#if defined(__PCLMUL__)
-    __m128i va = _mm_cvtsi64_si128((int64_t)x);
-    __m128i vb = _mm_cvtsi64_si128((int64_t)y);
-    __m128i p = _mm_clmulepi64_si128(va, vb, 0x00);
-    return _mm_cvtsi128_si64(p);
-#else
-    uint64_t out = 0;
-    while (y) {
-        uint64_t lsb = y & -y;
-        out ^= x * lsb;
-        y ^= lsb;
-    }
-    return out;
-#endif
+	#if defined(__PCLMUL__)
+		__m128i va = _mm_cvtsi64_si128((int64_t)x);
+		__m128i vb = _mm_cvtsi64_si128((int64_t)y);
+		__m128i p = _mm_clmulepi64_si128(va, vb, 0x00);
+		return _mm_cvtsi128_si64(p);
+	#elif defined(__aarch64__) && defined(__ARM_NEON)
+		return (uint64_t)vmull_p64(x, y);
+	#else
+		uint64_t out = 0;
+		while (y) {
+			uint64_t lsb = y & -y;
+			out ^= x * lsb;
+			y ^= lsb;
+		}
+		return out;
+	#endif
 }
 
 static inline uint64_t map_index(uint64_t x) {

@@ -35,14 +35,14 @@ tracker = ["dep:plotters", "dep:anyhow"]
 [[bench]]
 name = "v1"
 harness = false
-features = ["v1"]
+required-features = ["v1"]
 
 [[bench]]
 name = "v2"
 harness = false
-features = ["v2"]
+required-features = ["v2"]
 
 [[bench]]
 name = "v3"
 harness = false
-features = ["v3"]
+required-features = ["v3"]
