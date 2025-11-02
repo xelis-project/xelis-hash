@@ -102,24 +102,39 @@ static inline __uint128_t combine_uint64(uint64_t high, uint64_t low) {
 }
 
 static inline uint64_t murmurhash3(uint64_t seed) {
-	seed ^= seed >> 33;
-	seed *= 0xff51afd7ed558ccdULL;
-	seed ^= seed >> 33;
-	seed *= 0xc4ceb9fe1a85ec53ULL;
-	seed ^= seed >> 33;
-	return seed;
+    seed ^= seed >> 55;
+    seed *= 0xff51afd7ed558ccdULL;
+    seed ^= seed >> 32;
+    seed *= 0xc4ceb9fe1a85ec53ULL;
+    seed ^= seed >> 15;
+    return seed;
 }
 
-static inline uint64_t map_index(uint64_t seed) {
-	/* MurmurHash3 finalizer + multiply-high reduction.
-	* The finalizer avalanches the input seed; the mulhi step maps
-	* uniformly into [0, BUFSIZE) with minimal modulo bias. */
-	return (uint64_t)(((__uint128_t)murmurhash3(seed) * BUFSIZE) >> 64);
+static inline uint64_t clmul64(uint64_t x, uint64_t y) {
+#if defined(__PCLMUL__)
+    __m128i va = _mm_cvtsi64_si128((int64_t)x);
+    __m128i vb = _mm_cvtsi64_si128((int64_t)y);
+    __m128i p = _mm_clmulepi64_si128(va, vb, 0x00);
+    return _mm_cvtsi128_si64(p);
+#else
+    uint64_t out = 0;
+    while (y) {
+        uint64_t lsb = y & -y;
+        out ^= x * lsb;
+        y ^= lsb;
+    }
+    return out;
+#endif
+}
+
+static inline uint64_t map_index(uint64_t x) {
+    x ^= x >> 33;
+    x = clmul64(x, 0xff51afd7ed558ccdULL);
+    return (uint64_t)(((__uint128_t)x * BUFSIZE) >> 64);
 }
 
 static inline int pick_half(uint64_t seed) {
-    // Murmur3 finalizer to get a uniform selector bit
-	return (murmurhash3(seed) >> 63);
+    return (murmurhash3(seed) & (1ULL << 58)) != 0;
 }
 
 uint64_t isqrt(uint64_t n) {
@@ -273,14 +288,16 @@ void stage3(uint64_t *scratch) {
 			uint64_t idx_seed = v ^ result;
 			result = ROTL(idx_seed, r);
 
-			uint64_t idx_t = map_index(idx_seed);
-			uint64_t idx_a = map_index(result ^ 0x9e3779b97f4a7c15);
-			uint64_t idx_b = map_index(~result ^ 0xd2b74407b1ce6e93);
-
 			uint64_t use_buffer_b = pick_half(v);
+			uint64_t idx_t = map_index(idx_seed);
 			uint64_t t = (use_buffer_b ? mem_buffer_b[idx_t] : mem_buffer_a[idx_t]) ^ result;
+
+			uint64_t idx_a = map_index(t ^ result ^ 0x9e3779b97f4a7c15);
+			uint64_t idx_b = map_index(idx_a ^ ~result ^ 0xd2b74407b1ce6e93);
+
+			uint64_t mem_a = mem_buffer_a[idx_a];
 			mem_buffer_a[idx_a] = t;
-			mem_buffer_b[idx_b] ^= ROTR(t, i + j);
+			mem_buffer_b[idx_b] ^= mem_a ^ ROTR(t, i + j);
 		}
 
 		addr_a = modular_power(addr_a, addr_b, result);
@@ -341,10 +358,9 @@ void timing_test(int N) {
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		220, 125, 107, 5, 193, 114, 57, 220,
-		15, 63, 154, 248, 218, 205, 79, 113,
-		7, 42, 159, 137, 120, 181, 105, 192,
-		254, 95, 254, 194, 173, 250, 129, 56,
+		246, 164, 105, 223, 33, 5, 137, 118, 9, 126,
+		65, 99, 23, 148, 158, 172, 153, 51, 73, 14, 60,
+		18, 210, 78, 33, 49, 119, 117, 22, 1, 101, 128
 	};
 
 	xelis_hash_v3(input, hash, scratch);
