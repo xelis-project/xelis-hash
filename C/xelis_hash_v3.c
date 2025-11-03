@@ -213,8 +213,8 @@ void stage3(uint64_t *scratch) {
 	uint32_t r = 0;
 
 	for (uint32_t i = 0; i < ITERS; i++) {
-		uint64_t mem_a = mem_buffer_a[addr_a % BUFSIZE];
-		uint64_t mem_b = mem_buffer_b[addr_b % BUFSIZE];
+		uint64_t mem_a = mem_buffer_a[map_index(addr_a)];
+		uint64_t mem_b = mem_buffer_b[map_index(mem_a ^ addr_b)];
 
 		uint8_t block[16];
 		uint64_to_le_bytes(mem_b, block);
@@ -227,7 +227,7 @@ void stage3(uint64_t *scratch) {
 
 		for (uint32_t j = 0; j < BUFSIZE; j++) {
 			uint64_t a = mem_buffer_a[map_index(result)];
-			uint64_t b = mem_buffer_b[map_index(~ROTR(result, r))];
+			uint64_t b = mem_buffer_b[map_index(a ^ ~ROTR(result, r))];
 			uint64_t c = (r < BUFSIZE) ? mem_buffer_a[r] : mem_buffer_b[r - BUFSIZE];
 			r = (r < MEMSIZE - 1) ? r + 1 : 0;
 
@@ -366,9 +366,10 @@ void timing_test(int N) {
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		246, 164, 105, 223, 33, 5, 137, 118, 9, 126,
-		65, 99, 23, 148, 158, 172, 153, 51, 73, 14, 60,
-		18, 210, 78, 33, 49, 119, 117, 22, 1, 101, 128
+		189, 82, 134, 24, 51, 226, 252,
+		134, 217, 18, 252, 97, 168, 118,
+		143, 209, 72, 245, 104, 5, 236, 171,
+		94, 26, 96, 8, 250, 150, 79, 46, 56, 14
 	};
 
 	xelis_hash_v3(input, hash, scratch);

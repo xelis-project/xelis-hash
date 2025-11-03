@@ -133,7 +133,6 @@ const fn modular_power(mut base: u64, mut exp: u64, mod_: u64) -> u64 {
 pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tracker")] tracker: &mut OpsTracker) -> Result<(), Error> {
     let key = GenericArray::from(KEY);
     let mut block = GenericArray::from([0u8; 16]);
-    let buffer_size = BUFFER_SIZE as u64;
 
     // Create two new slices for each half
     let (mem_buffer_a, mem_buffer_b) = scratch_pad.as_mut_slice().split_at_mut(BUFFER_SIZE);
@@ -150,17 +149,17 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
     let mut r: usize = 0;
 
     for i in 0..SCRATCHPAD_ITERS {
-        let index_a = (addr_a % buffer_size) as usize;
-        let index_b = (addr_b % buffer_size) as usize;
+        let index_a = map_index(addr_a);
+        let mem_a = mem_buffer_a[index_a];
+
+        let index_b = map_index(mem_a ^ addr_b);
+        let mem_b = mem_buffer_b[index_b];
 
         #[cfg(feature = "tracker")]
         {
             tracker.add_mem_op(index_a, MemOp::Read);
             tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
         }
-
-        let mem_a = mem_buffer_a[index_a];
-        let mem_b = mem_buffer_b[index_b];
 
         block[..8].copy_from_slice(&mem_b.to_le_bytes());
         block[8..].copy_from_slice(&mem_a.to_le_bytes());
@@ -179,19 +178,16 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
 
         for j in 0..BUFFER_SIZE {
             let index_a = map_index(result);
-            let index_b = map_index(!result.rotate_right(r as u32));
+            let a = mem_buffer_a[index_a];      
+
+            let index_b = map_index(a ^ !result.rotate_right(r as u32));
+            let b = mem_buffer_b[index_b];
 
             #[cfg(feature = "tracker")]
             {
                 tracker.add_mem_op(index_a, MemOp::Read);
                 tracker.add_mem_op(BUFFER_SIZE + index_b, MemOp::Read);
-            }
 
-            let a = mem_buffer_a[index_a];
-            let b = mem_buffer_b[index_b];
-
-            #[cfg(feature = "tracker")]
-            {
                 // This is the same index in scratchpad
                 tracker.add_mem_op(r, MemOp::Read);
             }
@@ -284,11 +280,11 @@ pub(crate) fn stage_3(scratch_pad: &mut [u64; MEMORY_SIZE], #[cfg(feature = "tra
                 _ => unreachable!(),
             };
 
-            let idx_seed = v ^ result;
-            result = idx_seed.rotate_left(r as u32);
+            let seed = v ^ result;
+            result = seed.rotate_left(r as u32);
 
             let use_buffer_b = pick_half(v);
-            let index_t = map_index(idx_seed);
+            let index_t = map_index(seed);
             let t = if use_buffer_b { mem_buffer_b[index_t] } else { mem_buffer_a[index_t] } ^ result;
 
             let index_a = map_index(t ^ result ^ 0x9e3779b97f4a7c15);
@@ -360,9 +356,10 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            246, 164, 105, 223, 33, 5, 137, 118, 9, 126,
-            65, 99, 23, 148, 158, 172, 153, 51, 73, 14, 60,
-            18, 210, 78, 33, 49, 119, 117, 22, 1, 101, 128
+            189, 82, 134, 24, 51, 226, 252,
+            134, 217, 18, 252, 97, 168, 118,
+            143, 209, 72, 245, 104, 5, 236, 171,
+            94, 26, 96, 8, 250, 150, 79, 46, 56, 14
         ];
 
         assert_eq!(hash, expected_hash);
@@ -385,9 +382,10 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            214, 149, 146, 62, 182, 9, 76, 141, 122, 93,
-            99, 27, 200, 121, 17, 63, 229, 0, 253, 74, 241,
-            131, 31, 52, 145, 63, 228, 120, 68, 26, 212, 89
+            73, 91, 246, 163, 10, 86, 229, 9, 185,
+            116, 231, 147, 53, 116, 26, 253, 209,
+            232, 155, 206, 112, 1, 102, 100, 206,
+            93, 132, 178, 10, 236, 162, 72
         ];
 
         assert_eq!(hash, expected_hash);
