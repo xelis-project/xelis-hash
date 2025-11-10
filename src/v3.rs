@@ -17,49 +17,6 @@ const KEY: [u8; 16] = *b"xelishash-pow-v3";
 
 pub type ScratchPad = ScratchPadInternal<MEMORY_SIZE>;
 
-#[inline(always)]
-pub fn clmul64(a: u64, b: u64) -> u64 {
-    #[cfg(target_feature = "pclmulqdq")]
-    unsafe {
-        use core::arch::x86_64::*;
-        let va = _mm_cvtsi64_si128(a as i64);
-        let vb = _mm_cvtsi64_si128(b as i64);
-        let p  = _mm_clmulepi64_si128(va, vb, 0x00);
-        return _mm_cvtsi128_si64(p) as u64
-    }
-
-    #[cfg(all(
-        target_feature = "aes",
-        target_feature = "neon",
-        target_arch = "aarch64",
-    ))]
-    unsafe {
-        use core::arch::aarch64::*;
-        return vmull_p64(a, b) as u64
-    }
-
-    #[cfg(not(any(
-        target_feature = "pclmulqdq",
-        all(
-            target_feature = "aes",
-            target_feature = "neon",
-            target_arch = "aarch64",
-        ),
-    )))]
-    portable_clmul64(a, b)
-}
-
-#[inline(always)]
-pub const fn portable_clmul64(x: u64, mut y: u64) -> u64 {
-    let mut out = 0;
-    while y > 0 {
-        let lsb = y & y.wrapping_neg();
-        out ^= x.wrapping_mul(lsb);
-        y ^= lsb;
-    }
-    out
-}
-
 #[inline]
 const fn murmurhash3(mut seed: u64) -> u64 {
     /* MurmurHash3 finalizer.
@@ -81,7 +38,7 @@ pub fn map_index(mut x: u64) -> usize {
 	* uniformly into [0, BUFSIZE) with minimal modulo bias.
     */
     x ^= x >> 33;
-    x = clmul64(x, 0xff51afd7ed558ccd);
+    x = x.wrapping_mul(0xff51afd7ed558ccd);
 
     ((x as u128) * (BUFFER_SIZE as u128) >> 64) as usize
 }
@@ -356,10 +313,10 @@ mod tests {
 
         let hash = xelis_hash(&mut input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
         let expected_hash = [
-            189, 82, 134, 24, 51, 226, 252,
-            134, 217, 18, 252, 97, 168, 118,
-            143, 209, 72, 245, 104, 5, 236, 171,
-            94, 26, 96, 8, 250, 150, 79, 46, 56, 14
+            105, 172, 103, 40, 94, 253, 92, 162,
+            42, 252, 5, 196, 236, 238, 91, 218,
+            22, 157, 228, 233, 239, 8, 250, 57,
+            212, 166, 121, 132, 148, 205, 103, 163
         ];
 
         assert_eq!(hash, expected_hash);
@@ -382,10 +339,10 @@ mod tests {
         let hash = xelis_hash(&input, &mut scratch_pad, #[cfg(feature = "tracker")] &mut OpsTracker::new(MEMORY_SIZE)).unwrap();
 
         let expected_hash = [
-            73, 91, 246, 163, 10, 86, 229, 9, 185,
-            116, 231, 147, 53, 116, 26, 253, 209,
-            232, 155, 206, 112, 1, 102, 100, 206,
-            93, 132, 178, 10, 236, 162, 72
+            242, 8, 176, 222, 203, 27, 104,
+            187, 22, 40, 68, 73, 79, 79, 65,
+            83, 138, 101, 10, 116, 194, 41, 153,
+            21, 92, 163, 12, 206, 231, 156, 70, 83
         ];
 
         assert_eq!(hash, expected_hash);
@@ -394,7 +351,7 @@ mod tests {
     #[test]
     #[cfg(feature = "tracker")]
     fn test_distribution() {
-        const ITERATIONS: usize = 10_000;
+        const ITERATIONS: usize = 50_000;
 
         let mut scratch_pad = ScratchPad::default();
         let mut input = [0u8; 112];
@@ -424,38 +381,6 @@ mod tests {
 
         let ratio = ones as f64 / (ones + zeros) as f64;
         assert!((ratio - 0.5).abs() < 0.01, "pick_half is not balanced: ratio={}", ratio);
-    }
-
-    #[test]
-    fn test_clmul() {
-        // Verify platform-specific clmul to portable.
-        for _ in 0..1_000_000 {
-            let x = OsRng.next_u64();
-            let y = OsRng.next_u64();
-            assert_eq!(portable_clmul64(x, y), clmul64(x, y));
-        }
-
-        // Verify portable clmul for known test vectors.
-        assert_eq!(
-            portable_clmul64(0x8b44729195dde0ef, 0xb976c5ae2726fab0),
-            0x4ae14eae84899290
-        );
-        assert_eq!(
-            portable_clmul64(0x399b6ed00c44b301, 0x693341db5acb2ff0),
-            0x48dfa88344823ff0
-        );
-        assert_eq!(
-            portable_clmul64(0xdf4c9f6e60deb640, 0x6d4bcdb217ac4880),
-            0x7300ffe474792000
-        );
-        assert_eq!(
-            portable_clmul64(0xa7adf3c53a200a51, 0x818cb40fe11b431e),
-            0x6a280181d521797e
-        );
-        assert_eq!(
-            portable_clmul64(0x5e78e12b744f228c, 0x4225ff19e9273266),
-            0xa48b73cafb9665a8
-        );
     }
 
     #[test]

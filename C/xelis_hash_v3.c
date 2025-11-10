@@ -12,12 +12,6 @@
 #include "ChaCha20-SIMD/chacha20.h"
 #include <math.h>
 
-// Include ARM NEON header if compiling for ARM architecture
-// Used by clmul64 function
-#if defined(__aarch64__) && defined(__ARM_NEON)
-#include <arm_neon.h>
-#endif
-
 #define INPUT_LEN (112)
 #define MEMSIZE (531 * 128)
 #define ITERS (2)
@@ -116,28 +110,9 @@ static inline uint64_t murmurhash3(uint64_t seed) {
     return seed;
 }
 
-static inline uint64_t clmul64(uint64_t x, uint64_t y) {
-	#if defined(__PCLMUL__)
-		__m128i va = _mm_cvtsi64_si128((int64_t)x);
-		__m128i vb = _mm_cvtsi64_si128((int64_t)y);
-		__m128i p = _mm_clmulepi64_si128(va, vb, 0x00);
-		return _mm_cvtsi128_si64(p);
-	#elif defined(__aarch64__) && defined(__ARM_NEON)
-		return (uint64_t)vmull_p64(x, y);
-	#else
-		uint64_t out = 0;
-		while (y) {
-			uint64_t lsb = y & -y;
-			out ^= x * lsb;
-			y ^= lsb;
-		}
-		return out;
-	#endif
-}
-
 static inline uint64_t map_index(uint64_t x) {
     x ^= x >> 33;
-    x = clmul64(x, 0xff51afd7ed558ccdULL);
+    x *= 0xff51afd7ed558ccdULL;
     return (uint64_t)(((__uint128_t)x * BUFSIZE) >> 64);
 }
 
@@ -366,10 +341,10 @@ void timing_test(int N) {
 
 	// verify output
 	uint8_t gold[HASH_SIZE] = {
-		189, 82, 134, 24, 51, 226, 252,
-		134, 217, 18, 252, 97, 168, 118,
-		143, 209, 72, 245, 104, 5, 236, 171,
-		94, 26, 96, 8, 250, 150, 79, 46, 56, 14
+		105, 172, 103, 40, 94, 253, 92, 162,
+		42, 252, 5, 196, 236, 238, 91, 218,
+		22, 157, 228, 233, 239, 8, 250, 57,
+		212, 166, 121, 132, 148, 205, 103, 163
 	};
 
 	xelis_hash_v3(input, hash, scratch);
