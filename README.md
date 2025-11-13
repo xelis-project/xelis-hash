@@ -3,7 +3,15 @@
 XELIS Hash is expected to run on CPU and GPUs with a controlled gap.
 It is relying on two famous algorithms: ChaCha8 and Blake3.
 
-## Summary
+## V3
+
+Same base as the V2 but with a scratchpad of 544 KB.
+
+Stage 1 and (Final) stage 4 are the same as V2.
+
+Stage 3 has been modified to increase memory accesses while having a random memory access pattern.
+
+## V2
 
 New version use a scratchpad of ~440 KB which can be reused at each hash.
 
@@ -29,4 +37,7 @@ Expected time per hash is around 1.20-1.50ms.
 
 ## Features
 
-It is recommended to use the `v2` feature, but for compatibility, previous version is also available in `v1` feature.
+- `v1`: deprecated algorithm
+- `v2`: new algorithm with 440 KB scratchpad
+- `v3`: new algorithm version based on the v2 with bigger scratchpad and others changes
+- `tracker`: track branches selection, memory accesses and generate charts for it.
