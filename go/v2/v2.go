@@ -6,6 +6,7 @@ import (
 
 	"github.com/chocolatkey/chacha8"
 	"github.com/xelis-project/xelis-hash/aes"
+	"github.com/xelis-project/xelis-hash/hash"
 	"lukechampine.com/blake3"
 	"lukechampine.com/uint128"
 )
@@ -17,7 +18,6 @@ const (
 	ChunkSize       = 32
 	NonceSize       = 12
 	MemorySizeBytes = MemorySize * 8
-	HashSize        = 32
 )
 
 var Key = [16]byte{'x', 'e', 'l', 'i', 's', 'h', 'a', 's', 'h', '-', 'p', 'o', 'w', '-', 'v', '2'}
@@ -52,9 +52,9 @@ func Stage1(input []byte, scratchPad *ScratchPad) error {
 		chunk := input[start:end]
 
 		// Concatenate input hash with chunk
-		tmp := make([]byte, HashSize*2)
-		copy(tmp[0:HashSize], inputHash[:])
-		copy(tmp[HashSize:HashSize+len(chunk)], chunk)
+		tmp := make([]byte, hash.HashSize*2)
+		copy(tmp[0:hash.HashSize], inputHash[:])
+		copy(tmp[hash.HashSize:hash.HashSize+len(chunk)], chunk)
 
 		// Hash it
 		inputHash = blake3.Sum256(tmp)
@@ -239,20 +239,20 @@ func Stage3(scratchPad *ScratchPad) error {
 }
 
 // Stage4 hashes the entire scratchpad with Blake3
-func Stage4(scratchPad *ScratchPad) [HashSize]byte {
+func Stage4(scratchPad *ScratchPad) hash.Hash {
 	scratchPadBytes := (*[MemorySizeBytes]byte)(unsafe.Pointer(scratchPad))[:]
 	return blake3.Sum256(scratchPadBytes)
 }
 
-func XelisHash(input []byte, scratchPad *ScratchPad) ([HashSize]byte, error) {
+func XelisHash(input []byte, scratchPad *ScratchPad) (hash.Hash, error) {
 	err := Stage1(input, scratchPad)
 	if err != nil {
-		return [HashSize]byte{}, err
+		return hash.Zero(), err
 	}
 
 	err = Stage3(scratchPad)
 	if err != nil {
-		return [HashSize]byte{}, err
+		return hash.Zero(), err
 	}
 
 	return Stage4(scratchPad), nil

@@ -5,6 +5,7 @@ import (
 
 	hash "github.com/xelis-project/xelis-hash/hash"
 	v1 "github.com/xelis-project/xelis-hash/v1"
+	v2 "github.com/xelis-project/xelis-hash/v2"
 )
 
 func HashV1(input []byte) (hash.Hash, error) {
@@ -17,4 +18,9 @@ func HashV1(input []byte) (hash.Hash, error) {
 
 	scratchPad := v1.NewScratchPad()
 	return v1.XelisHash(&padded, scratchPad)
+}
+
+func HashV2(input []byte) (hash.Hash, error) {
+	scratchPad := v2.NewScratchPad()
+	return v2.XelisHash(input, scratchPad)
 }
