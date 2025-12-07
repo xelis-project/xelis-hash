@@ -3,9 +3,10 @@ package v1
 import (
 	"encoding/binary"
 	"math/bits"
+	"unsafe"
 
-	xelis_hash "github.com/xelis-project/xelis-hash"
 	"github.com/xelis-project/xelis-hash/aes"
+	"github.com/xelis-project/xelis-hash/hash"
 )
 
 const (
@@ -21,30 +22,9 @@ const (
 
 type ScratchPad [MemorySize]uint64
 
-// keccakP is the Keccak-p[1600,24] permutation
-func keccakP(state *[KeccakWords]uint64) {
-	keccakP2(state)
-	// // Use sha3's internal state permutation
-	// var stateBytes [200]byte
-	// for i := 0; i < KeccakWords; i++ {
-	// 	binary.LittleEndian.PutUint64(stateBytes[i*8:], state[i])
-	// }
-
-	// // Apply Keccak-f[1600] permutation (equivalent to keccakp)
-	// sha3.ShakeSum128(stateBytes[:], stateBytes[:])
-
-	// // For proper Keccak-p, we use the raw permutation
-	// // This is a simplified version - in production you'd use the actual Keccak-p implementation
-	// var tmpState [25]uint64
-	// for i := 0; i < KeccakWords; i++ {
-	// 	tmpState[i] = binary.LittleEndian.Uint64(stateBytes[i*8:])
-	// }
-	// *state = tmpState
-}
-
-func stage1(input *[KeccakWords]uint64, scratchPad *[MemorySize]uint64, aRange, bRange [2]int) {
+func Stage1(input *[KeccakWords]uint64, scratchPad *[MemorySize]uint64, aRange, bRange [2]int) {
 	for i := aRange[0]; i <= aRange[1]; i++ {
-		keccakP(input)
+		KeccakF1600(input)
 
 		var randInt uint64 = 0
 		for j := bRange[0]; j <= bRange[1]; j++ {
@@ -77,7 +57,7 @@ func stage1(input *[KeccakWords]uint64, scratchPad *[MemorySize]uint64, aRange, 
 	}
 }
 
-func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (xelis_hash.Hash, error) {
+func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (hash.Hash, error) {
 	// Convert input bytes to u64 array
 	var intInput [KeccakWords]uint64
 	for i := 0; i < KeccakWords; i++ {
@@ -85,17 +65,13 @@ func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (xelis_hash
 	}
 
 	// Stage 1
-	stage1(&intInput, (*[MemorySize]uint64)(scratchPad), [2]int{0, Stage1Max - 1}, [2]int{0, KeccakWords - 1})
-	stage1(&intInput, (*[MemorySize]uint64)(scratchPad), [2]int{Stage1Max, Stage1Max}, [2]int{0, 17})
+	Stage1(&intInput, (*[MemorySize]uint64)(scratchPad), [2]int{0, Stage1Max - 1}, [2]int{0, KeccakWords - 1})
+	Stage1(&intInput, (*[MemorySize]uint64)(scratchPad), [2]int{Stage1Max, Stage1Max}, [2]int{0, 17})
 
 	// Stage 2
 	var slots [SlotLength]uint32
-	// Convert scratchpad to u32
-	smallPad := make([]uint32, MemorySize*2)
-	for i := 0; i < MemorySize; i++ {
-		smallPad[i*2] = uint32(scratchPad[i])
-		smallPad[i*2+1] = uint32(scratchPad[i] >> 32)
-	}
+	// Convert scratchpad to u32 using unsafe pointer (no copy)
+	smallPad := (*[MemorySize * 2]uint32)(unsafe.Pointer(&scratchPad[0]))
 
 	copy(slots[:], smallPad[len(smallPad)-SlotLength:])
 
@@ -138,11 +114,7 @@ func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (xelis_hash
 	}
 
 	copy(smallPad[MemorySize*2-SlotLength:], slots[:])
-
-	// Convert back to u64
-	for i := 0; i < MemorySize; i++ {
-		scratchPad[i] = uint64(smallPad[i*2]) | (uint64(smallPad[i*2+1]) << 32)
-	}
+	// No need to convert back - smallPad points directly to scratchPad memory
 
 	// Stage 3
 	var key [16]byte // zero key
@@ -159,7 +131,7 @@ func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (xelis_hash
 		memBufferB[i] = scratchPad[(addrB+i)%MemorySize]
 	}
 
-	var finalResult xelis_hash.Hash
+	var finalResult hash.Hash
 
 	for i := 0; i < ScratchpadIters; i++ {
 		memA := memBufferA[i%BufferSize]
@@ -176,7 +148,7 @@ func XelisHash(input *[BytesArrayInput]byte, scratchPad *ScratchPad) (xelis_hash
 
 		result := ^(hash1 ^ hash2)
 
-		for j := 0; j < xelis_hash.HashSize; j++ {
+		for j := 0; j < hash.HashSize; j++ {
 			a := memBufferA[(j+i)%BufferSize]
 			b := memBufferB[(j+i)%BufferSize]
 

@@ -23,7 +23,7 @@ var rc = [RC_LEN]uint64{
 // keccakF1600 applies the Keccak permutation to a 1600b-wide
 // state represented as a slice of 25 uint64s.
 // This is copied directly from golang.org/x/crypto/sha3/keccakf.go
-func keccakF1600(a *[25]uint64) {
+func KeccakF1600(a *[25]uint64) {
 	// Implementation translated from Keccak-inplace.c
 	// in the keccak reference code.
 	var t, bc0, bc1, bc2, bc3, bc4, d0, d1, d2, d3, d4 uint64
@@ -396,9 +396,4 @@ func keccakF1600(a *[25]uint64) {
 		a[23] = bc3 ^ (bc0 &^ bc4)
 		a[24] = bc4 ^ (bc1 &^ bc0)
 	}
-}
-
-// keccakP is the Keccak-p[1600,24] permutation (alias for keccakF1600)
-func keccakP2(state *[KeccakWords]uint64) {
-	keccakF1600(state)
 }
