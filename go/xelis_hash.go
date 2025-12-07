@@ -3,10 +3,10 @@ package xelis_hash
 import (
 	"errors"
 
-	hash "github.com/xelis-project/xelis-hash/hash"
-	v1 "github.com/xelis-project/xelis-hash/v1"
-	v2 "github.com/xelis-project/xelis-hash/v2"
-	v3 "github.com/xelis-project/xelis-hash/v3"
+	hash "github.com/xelis-project/xelis-hash/go/hash"
+	v1 "github.com/xelis-project/xelis-hash/go/v1"
+	v2 "github.com/xelis-project/xelis-hash/go/v2"
+	v3 "github.com/xelis-project/xelis-hash/go/v3"
 )
 
 func HashV1(input []byte) (hash.Hash, error) {

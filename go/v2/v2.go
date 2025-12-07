@@ -5,8 +5,8 @@ import (
 	"unsafe"
 
 	"github.com/chocolatkey/chacha8"
-	"github.com/xelis-project/xelis-hash/aes"
-	"github.com/xelis-project/xelis-hash/hash"
+	"github.com/xelis-project/xelis-hash/go/aes"
+	"github.com/xelis-project/xelis-hash/go/hash"
 	"lukechampine.com/blake3"
 	"lukechampine.com/uint128"
 )

@@ -1,4 +1,4 @@
-module github.com/xelis-project/xelis-hash
+module github.com/xelis-project/xelis-hash/go
 
 go 1.24.0
 

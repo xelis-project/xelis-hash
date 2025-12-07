@@ -5,8 +5,8 @@ import (
 	"math/bits"
 	"unsafe"
 
-	"github.com/xelis-project/xelis-hash/aes"
-	"github.com/xelis-project/xelis-hash/hash"
+	"github.com/xelis-project/xelis-hash/go/aes"
+	"github.com/xelis-project/xelis-hash/go/hash"
 )
 
 const (
