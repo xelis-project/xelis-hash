@@ -1,6 +1,4 @@
-use std::hint::black_box;
-
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, BatchSize};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use xelis_hash::v3::*;
 
@@ -19,31 +17,25 @@ fn bench_fixed_input(c: &mut Criterion) {
 
 fn bench_pick_half(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(0xDEADBEEFCAFEBABE);
-    let inputs: Vec<u64> = (0..1_000_000).map(|_| rng.gen()).collect();
 
     c.bench_function("v3::pick_half", |b| {
-        b.iter(|| {
-            // Iterate over pre-generated random seeds
-            for &seed in &inputs {
-                // Prevent compiler from optimizing away the call
-                black_box(pick_half(black_box(seed)));
-            }
-        })
+        b.iter_batched(
+            || rng.gen::<u64>(),
+            |seed| pick_half(seed),
+            BatchSize::SmallInput
+        )
     });
 }
 
 fn bench_map_index(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(0xDEADBEEFCAFEBABE);
-    let inputs: Vec<u64> = (0..1_000_000).map(|_| rng.gen()).collect();
 
     c.bench_function("v3::map_index", |b| {
-        b.iter(|| {
-            // Iterate over pre-generated random seeds
-            for &seed in &inputs {
-                // Prevent compiler from optimizing away the call
-                black_box(map_index(black_box(seed)));
-            }
-        })
+        b.iter_batched(
+            || rng.gen::<u64>(),
+            |seed| map_index(seed),
+            BatchSize::SmallInput
+        )
     });
 }
 
