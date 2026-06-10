@@ -59,9 +59,9 @@ pub fn isqrt(n: u64) -> u64 {
     let approx = (n as f64).sqrt() as u64;
 
     // Verify and adjust if necessary
-    if approx * approx > n {
+    if approx.wrapping_mul(approx) > n {
         approx - 1
-    } else if (approx + 1) * (approx + 1) <= n {
+    } else if (approx + 1).wrapping_mul(approx + 1) <= n {
         approx + 1
     } else {
         approx
